@@ -38,11 +38,34 @@ turns it on.
 
 | | |
 |---|---|
-| A dedicated VM | Ubuntu 24.04 LTS, 2 vCPU, 4 GB RAM, 20 GB disk. **Intranet only**: it must not be reachable from the internet. |
+| A dedicated VM | Ubuntu 24.04 LTS, reachable from your **intranet only**, never the internet. Sizes below. |
 | Google Workspace | A **super admin** account, used once during setup. |
 | A phish-report mailbox | For example `phishing@your-district.org`, the address your Phish Alert Button forwards to. |
 | Outbound mail | Google's SMTP relay, set up in the wizard. No password is needed. |
 | Optional | KnowBe4 API tokens, a CrowdStrike API client, an abuse.ch key, a Claude subscription. |
+
+### Server size
+
+| | Minimum | Recommended |
+|---|---|---|
+| vCPU | 2 | 4 |
+| RAM | 4 GB | 8 GB |
+| Disk | 30 GB | 60 GB |
+| OS | Ubuntu 24.04 LTS | Ubuntu 24.04 LTS |
+
+Normal running is light. On a district with about 1,400 staff and 6,300 student mailboxes,
+the console, scheduler and GAM together use under 2 GB of RAM. The peaks are:
+
+- **Installs and upgrades.** Building the console (`npm run build`) needs about 2 GB on its
+  own. On a 4 GB machine, upgrade outside an incident.
+- **Large scans.** A sweep or hunt walks every mailbox in the domain. More CPU makes it no
+  faster, because Google's API is the bottleneck. More RAM lets it run while the console
+  stays responsive.
+- **Disk growth.** The database (sign-in history, reports, alerts) and the job logs grow
+  steadily. The recommended 60 GB covers years at that district size. Add more if you keep
+  long sign-in history for a very large tenant.
+
+For districts over about 20,000 mailboxes, start at 4 vCPU and 16 GB.
 
 Why a dedicated host: the GAM service-account key that Warden uses can read and trash mail in
 **every mailbox in your domain**. The installer creates that key on the host itself, and it
