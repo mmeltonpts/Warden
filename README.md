@@ -196,3 +196,19 @@ The scripts in `scripts/` run as the `warden` user on the host, for example
 `private/`, which is gitignored. That includes incident records, known-good senders and
 partner contacts. **Never commit domains, addresses, IP ranges, hostnames or people's names**;
 tests use `example.org` and invented names.
+
+## License
+
+[PolyForm Noncommercial 1.0.0](LICENSE). In plain terms:
+
+- **Schools, districts, government bodies and charities** may use, modify and share Warden
+  freely. The license explicitly counts any educational institution or government body as
+  permitted use, whatever its funding.
+- **Individuals** may use it for any noncommercial purpose, including personal study and
+  research.
+- **Nobody may sell it**: commercial use is not permitted. That includes selling copies,
+  bundling it into a paid product, or charging to host or run it for others.
+
+If you change it and share your version, keep the `LICENSE` file and its `Required Notice`
+line. This is source-available software, not "open source" in the OSI sense, because
+open-source licenses must allow commercial use.
