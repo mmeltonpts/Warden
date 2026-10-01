@@ -20,7 +20,14 @@ const CONSEQUENTIAL = [
   'account_check',
   'settings_update',
   'job_cancelled',
-  'alert_mirror_FAILED'
+  'alert_mirror_FAILED',
+  // Every email Warden sends to a person: the staff "was this you?" verification and its
+  // outcome, and the handbook notice sent to a student. Here so they show in the default
+  // view, not only under "all".
+  'signin_verify_sent',
+  'signin_verify_denied',
+  'signin_verify_hidden',
+  'student_vpn_notice'
 ];
 
 const VIEWS: Array<{ key: string; label: string }> = [

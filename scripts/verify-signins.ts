@@ -108,6 +108,16 @@ async function main(): Promise<string> {
         notes: res.status === 'sent' ? null : `send ${res.status}${res.error ? `: ${res.error}` : ''}`
       }
     });
+    // Every verification email is in the audit trail, sent or not, so "who was emailed about
+    // what, and when" is answerable from /audit and not only from the verify table.
+    await prisma.wardenAudit.create({
+      data: {
+        operator: 'system:verify',
+        action: res.status === 'sent' ? 'signin_verify_sent' : 'signin_verify_send_failed',
+        target: f.mailbox,
+        detail: `${org}${f.geo ? ` (${f.geo})` : ''}; score ${f.score}; code ${code}${res.status === 'sent' ? '' : `; ${res.status}${res.error ? ` ${res.error}` : ''}`}`
+      }
+    }).catch(() => undefined);
     if (res.status === 'sent') sent++;
   }
 
@@ -189,6 +199,19 @@ async function main(): Promise<string> {
     else if (decided === 'HIDDEN') hidden++;
     else if (decided === 'CONFIRMED_YES') confirmed++;
     else if (closing === 'EXPIRED') expired++;
+
+    // Record the outcome of every verification that reached a conclusion this run.
+    if (closing) {
+      const last = checks[checks.length - 1];
+      await prisma.wardenAudit.create({
+        data: {
+          operator: 'system:verify',
+          action: `signin_verify_${closing.toLowerCase()}`,
+          target: v.mailbox,
+          detail: `${v.netOrg ?? '?'}${v.geo ? ` (${v.geo})` : ''}; code ${v.code}${last ? `; ${last.label}: ${last.detail}` : ''}`
+        }
+      }).catch(() => undefined);
+    }
 
     // Alarm + escalate the linked flag for the decisive outcomes.
     if (decided === 'DENIED' || decided === 'HIDDEN') {
