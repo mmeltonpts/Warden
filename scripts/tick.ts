@@ -30,7 +30,7 @@ import { isSetupComplete } from '../src/lib/setup';
 
 const prisma = new PrismaClient();
 
-type JobKey = 'alerts' | 'reports' | 'loginscan' | 'knowbe4' | 'feeds' | 'hunt' | 'quarantine' | 'falcon';
+type JobKey = 'alerts' | 'reports' | 'loginscan' | 'knowbe4' | 'feeds' | 'hunt' | 'quarantine' | 'falcon' | 'verify' | 'studentvpn';
 
 const FORCE = process.argv.includes('--force');
 const ONLY = (() => {
@@ -99,7 +99,9 @@ async function main() {
     // than waiting for the next one.
     { key: 'hunt', every: sch.huntMinutes, run: runHunt },
     { key: 'quarantine', every: sch.quarantineMinutes ?? 10, run: runQuarantine },
-    { key: 'falcon', every: sch.falconMinutes ?? 5, run: runFalcon }
+    { key: 'falcon', every: sch.falconMinutes ?? 5, run: runFalcon },
+    { key: 'verify', every: sch.verifyMinutes ?? 0, run: runVerify },
+    { key: 'studentvpn', every: sch.studentVpnMinutes ?? 0, run: runStudentVpn }
   ];
 
   for (const j of jobs) {
@@ -251,6 +253,16 @@ async function runQuarantine(): Promise<string> {
 async function runFalcon(): Promise<string> {
   const { run } = await import('./sync-falcon');
   return summarise(await run());
+}
+
+async function runVerify(): Promise<string> {
+  const { runVerifySignins } = await import('./verify-signins');
+  return summarise(await runVerifySignins());
+}
+
+async function runStudentVpn(): Promise<string> {
+  const { runQueueStudentVpn } = await import('./queue-student-vpn');
+  return summarise(await runQueueStudentVpn());
 }
 
 async function runKnowBe4(): Promise<string> {

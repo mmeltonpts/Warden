@@ -36,6 +36,8 @@ export interface WardenSettings extends GamSettings {
     huntMinutes: number;
     quarantineMinutes: number;
     falconMinutes: number;
+    verifyMinutes: number;
+    studentVpnMinutes: number;
   };
   feeds: {
     enabled: boolean;
@@ -50,6 +52,27 @@ export interface WardenSettings extends GamSettings {
   };
   quarantine: {
     notify: boolean;
+  };
+  signinVerify: {
+    enabled: boolean;
+    replyMailbox: string;
+    minScore: number;
+    onlyVpnOrForeign: boolean;
+    cooldownDays: number;
+    checkMinutes: string;
+    helpdesk: string;
+    subject: string;
+    body: string;
+  };
+  studentVpn: {
+    enabled: boolean;
+    buildingAdmins: string;
+    schoolHoursOnly: boolean;
+    utcOffsetMinutes: number;
+    schoolDays: string;
+    schoolWindow: string;
+    noticeSubject: string;
+    noticeBody: string;
   };
   sound: {
     enabled: boolean;
@@ -138,7 +161,13 @@ export const DEFAULTS: WardenSettings = {
     huntMinutes: 720,
     // The Gmail delivery log lags delivery by minutes, so polling faster than this buys nothing.
     quarantineMinutes: 10,
-    falconMinutes: 5
+    falconMinutes: 5,
+    // Sends new verification emails and re-checks sent ones for a reply or deletion. Must be
+    // frequent, because the deletion check only means something within minutes of delivery.
+    verifyMinutes: 2,
+    // Routes new student VPN sign-ins to building admins. The queue is reviewed by a human,
+    // so it does not need to be fast; hourly keeps the queue current without noise.
+    studentVpnMinutes: 60
   },
   feeds: {
     // Public threat feeds. These are URL-heavy, and Gmail cannot match a domain inside
@@ -169,6 +198,68 @@ export const DEFAULTS: WardenSettings = {
     bannedTools: 'ScreenConnect, ConnectWise',
     // Empty on purpose: approving a remote-access tool is a decision for the district.
     approvedTools: ''
+  },
+  signinVerify: {
+    // A "was this you?" email to staff after a risky VPN or foreign sign-in. Off until a
+    // reply mailbox is set, because a verification with nowhere to reply is pointless.
+    enabled: false,
+    // A mailbox GAM can read (a user or shared mailbox, not a bare Group). Replies land here
+    // and Warden matches them back by the code in the subject.
+    replyMailbox: '',
+    minScore: 50,
+    onlyVpnOrForeign: true,
+    // Do not re-ask the same person about the same network within this many days.
+    cooldownDays: 30,
+    // When to re-check the mailbox after sending, in minutes. The deletion fingerprint shows
+    // up fast, so the early checks matter most.
+    checkMinutes: '2, 10, 30',
+    helpdesk: 'the help desk',
+    subject: 'Security alert: verify your recent sign-in',
+    body: [
+      'Hi {name},',
+      '',
+      'Your district account was used to sign in at {when} from {where}.',
+      'Our security monitoring flagged it because it did not look like your usual activity.',
+      '',
+      'Was this you?',
+      '  - If YES, reply to this message with the word YES.',
+      '  - If NO, reply with NO and call {helpdesk} right away — your password may need to be changed.',
+      '',
+      'Please reply rather than clicking any link. We never ask you to confirm a sign-in by',
+      'following a link.',
+      '',
+      'Reply address: {reply}',
+      '',
+      '— District Security'
+    ].join('\n')
+  },
+  studentVpn: {
+    // Queue student VPN/relay sign-ins for a building administrator to review. Never
+    // auto-sends: sign-in data cannot tell a school device from a personal phone, and an
+    // iPhone's default Private Relay looks the same as a VPN.
+    enabled: false,
+    // One rule per line, "OU-prefix = admin email". Longest matching prefix wins.
+    buildingAdmins: '',
+    schoolHoursOnly: false,
+    // The district's UTC offset in minutes (US Central Daylight = -300, Standard = -360),
+    // used only to label a sign-in as during school hours for the administrator.
+    utcOffsetMinutes: -300,
+    schoolDays: '1,2,3,4,5',
+    schoolWindow: '07:30-15:00',
+    noticeSubject: 'Notice: VPN use and the student handbook',
+    noticeBody: [
+      'Hello,',
+      '',
+      'Our records show your school account signed in through a VPN or anonymising service on {when}.',
+      '',
+      'The student handbook states that using a VPN on a district device or network without',
+      'permission from the technology department is not allowed and may lead to progressive',
+      'discipline. Please stop using a VPN with your school account.',
+      '',
+      'If you have a question about this notice, talk to your building office.',
+      '',
+      '— {building} Administration'
+    ].join('\n')
   },
   sound: {
     // An audible alarm in every open console when a critical alert lands. Email can sit
@@ -405,6 +496,42 @@ export const FIELDS = [
     help: 'Goes to the notify list, and says plainly whether Falcon BLOCKED it or only DETECTED it. Detected means it ran.' },
   { section: 'Schedule', key: 'schedule.falconMinutes', label: 'Pull CrowdStrike detections every (minutes)', type: 'number',
     help: '0 disables.' },
+  { section: 'Schedule', key: 'schedule.verifyMinutes', label: 'Send & re-check sign-in verifications every (minutes)', type: 'number',
+    help: 'Keep this low (2-5): the deletion check only means something within minutes of the email arriving. 0 disables.' },
+  { section: 'Schedule', key: 'schedule.studentVpnMinutes', label: 'Queue student VPN sign-ins every (minutes)', type: 'number',
+    help: 'The queue is reviewed by a human, so hourly is fine. 0 disables.' },
+  { section: 'Verify', key: 'signinVerify.enabled', label: 'Email staff to verify risky sign-ins', type: 'boolean',
+    help: 'After a sign-in Warden rates risky (a VPN or a foreign address Google flagged), email the person to ask whether it was them. A reply of NO, or the email being deleted or filtered within minutes, raises an alarm. A reply of YES lowers the score. Warden never suspends anyone — this puts a human in the loop. Needs a reply mailbox below and email notifications switched on.' },
+  { section: 'Verify', key: 'signinVerify.replyMailbox', label: 'Reply mailbox', type: 'text',
+    help: 'Where replies go, e.g. signin-verify@your-district.org. Must be a real mailbox GAM can read (a user or shared mailbox), not a bare Google Group. Create it and point the verification email there.' },
+  { section: 'Verify', key: 'signinVerify.minScore', label: 'Only verify at or above this score', type: 'number',
+    help: 'Defaults to your risk flag threshold. Raise it to email only the strongest flags.' },
+  { section: 'Verify', key: 'signinVerify.onlyVpnOrForeign', label: 'Only for VPN or foreign sign-ins', type: 'boolean',
+    help: 'On by default — these are the cases a person can actually answer. Off emails for every flag at or above the score.' },
+  { section: 'Verify', key: 'signinVerify.cooldownDays', label: "Don't re-ask the same person about the same network within (days)", type: 'number',
+    help: 'Stops someone who lives behind one VPN from being emailed daily, which is how people learn to ignore it.' },
+  { section: 'Verify', key: 'signinVerify.checkMinutes', label: 'Re-check the mailbox after (minutes)', type: 'text',
+    help: 'Comma-separated, e.g. "2, 10, 30". After sending, Warden looks at whether the email is still in the inbox at each of these times. A message deleted, trashed or filtered away this quickly is the fingerprint of an attacker\'s auto-delete rule — which is why the subject uses words those rules target.' },
+  { section: 'Verify', key: 'signinVerify.helpdesk', label: 'Help desk (shown in the email)', type: 'text' },
+  { section: 'Verify', key: 'signinVerify.subject', label: 'Email subject', type: 'text',
+    help: 'Deliberately contains "security" so an attacker\'s delete-the-warnings rule catches it. {code} is added automatically if you leave it out, so replies can be matched back.' },
+  { section: 'Verify', key: 'signinVerify.body', label: 'Email body', type: 'textarea',
+    help: 'One line per row. Placeholders: {name} {when} {where} {reply} {helpdesk}. No links — the message asks the person to reply or call, because our own training says not to click links in security email.' },
+
+  { section: 'Student notices', key: 'studentVpn.enabled', label: 'Queue student VPN sign-ins for building admins', type: 'boolean',
+    help: 'When a student account signs in through a VPN or privacy relay, add it to a queue for that building\'s administrator to review. Nothing is emailed to a student automatically — an administrator reviews each one and chooses to send the handbook notice or dismiss it (for example, an iPhone\'s default Private Relay). Needs student sign-in scanning on (Sign-in risk tab).' },
+  { section: 'Student notices', key: 'studentVpn.buildingAdmins', label: 'Building administrators', type: 'textarea',
+    help: 'One rule per line, "OU-prefix = admin email", e.g. "/Student Accounts/PHS = phs.admin@your-district.org". The longest matching Org Unit prefix wins, so a grade-level line overrides a building default. A student whose OU matches nothing is still queued, routed to nobody, visible to admins.' },
+  { section: 'Student notices', key: 'studentVpn.schoolHoursOnly', label: 'Only queue sign-ins during school hours', type: 'boolean',
+    help: 'Off by default. On limits the queue to school days and hours — useful if you only care about filter evasion on campus. Every row still shows whether it was during school hours either way.' },
+  { section: 'Student notices', key: 'studentVpn.schoolDays', label: 'School days (0=Sun … 6=Sat)', type: 'text' },
+  { section: 'Student notices', key: 'studentVpn.schoolWindow', label: 'School hours (local, HH:MM-HH:MM)', type: 'text' },
+  { section: 'Student notices', key: 'studentVpn.utcOffsetMinutes', label: 'District UTC offset (minutes)', type: 'number',
+    help: 'Used only to label a sign-in as during school hours. US Central: -300 (daylight) or -360 (standard).' },
+  { section: 'Student notices', key: 'studentVpn.noticeSubject', label: 'Notice subject', type: 'text' },
+  { section: 'Student notices', key: 'studentVpn.noticeBody', label: 'Notice to the student', type: 'textarea',
+    help: 'One line per row. Placeholders: {when} {building}. Sent only when a building administrator approves a row. Quote your own handbook here — the default paraphrases the PHS VPN rule.' },
+
   { section: 'Sounds', key: 'sound.enabled', label: 'Sound an alarm in the console for critical alerts', type: 'boolean',
     help: 'Every open console tab plays a sound and shows a banner when a qualifying alert arrives. Each person can still mute their own browser with the speaker button at the bottom right. Browsers only allow sound after you have clicked somewhere on the page once — the banner says so if it is blocked.' },
   { section: 'Sounds', key: 'sound.alertSeverities', label: 'Google Alert Center severities that sound', type: 'text',

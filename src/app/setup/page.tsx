@@ -148,6 +148,39 @@ const GUIDE: Record<string, React.ReactNode> = {
       <p>When the session expires, triage falls back to manual; nothing else is affected.</p>
     </div>
   ),
+  Verify: (
+    <div className="space-y-2">
+      <p>
+        Optional. After a sign-in Warden rates risky (a VPN, or a foreign address Google
+        flagged), it emails the person to ask whether it was them. A reply of NO — or the email
+        being deleted or filtered within minutes, which is how an attacker hides warnings —
+        raises an alarm. A reply of YES lowers the score. Warden never suspends anyone.
+      </p>
+      <p>
+        Create a mailbox for replies (a user or shared mailbox GAM can read, e.g.
+        {code('signin-verify@your-district.org')}), set it below, and make sure email
+        notifications are on. Tell staff the emails are coming, so they are not mistaken for
+        phishing.
+      </p>
+    </div>
+  ),
+  'Student notices': (
+    <div className="space-y-2">
+      <p>
+        Optional. When a student account signs in through a VPN or privacy relay, Warden adds it
+        to a queue for that building&apos;s administrator to review on the Verify page. Nothing is
+        sent to a student automatically — an administrator decides, because a sign-in cannot tell
+        a school device from a personal phone and an iPhone&apos;s default Private Relay looks the
+        same as a VPN.
+      </p>
+      <p>
+        Needs student sign-in scanning on (Sign-in risk tab). Map each building to an
+        administrator below, one per line, by Org Unit, e.g.
+        {code('/Student Accounts/PHS = phs.admin@your-district.org')}. Quote your own handbook in
+        the notice text.
+      </p>
+    </div>
+  ),
   Sounds: (
     <p>
       Every open console plays a sound and shows a red banner when a critical alert arrives —

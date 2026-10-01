@@ -22,6 +22,8 @@ const PREFERRED = [
   'Google Workspace',
   'Notifications',
   'Sounds',
+  'Verify',
+  'Student notices',
   'Reports',
   'Alerts',
   'Sign-in risk',
@@ -43,7 +45,7 @@ export const SECTIONS: string[] = (() => {
 })();
 
 /** Integrations a district may not have. The wizard offers "Skip" on these. */
-export const OPTIONAL_SECTIONS = new Set(['Threat feeds', 'KnowBe4', 'CrowdStrike', 'Claude']);
+export const OPTIONAL_SECTIONS = new Set(['Threat feeds', 'KnowBe4', 'CrowdStrike', 'Claude', 'Verify', 'Student notices']);
 
 export const BLURB: Record<string, string> = {
   General: 'How people reach this console.',
@@ -58,6 +60,10 @@ export const BLURB: Record<string, string> = {
     'Messages your content-compliance rules held before delivery. They never reach a mailbox, so no scope can find them — Warden reads them from the Gmail delivery log instead. Release and deny stay in the Admin console.',
   'Sign-in risk':
     'Each mailbox is scored against its own learned normal, not a fixed rule. A wider window means better baselines and fewer false positives.',
+  Verify:
+    'After a risky VPN or foreign sign-in, email the person to ask whether it was them. A reply of NO — or the email being deleted or filtered within minutes, the fingerprint of an attacker rule — raises an alarm. Warden never suspends anyone; this keeps a human in the loop.',
+  'Student notices':
+    'Queue student VPN sign-ins for the right building administrator to review. Never auto-sent, because sign-in data cannot tell a school device from a personal phone and an iPhone’s default relay looks like a VPN.',
   Sounds:
     'An alarm in every open console when a critical alert arrives — for the room with the console on a screen, where email goes unread.',
   Notifications:
@@ -108,6 +114,12 @@ export function patchFromForm(section: string, formData: FormData): Record<strin
     const raw = formData.get(f.key);
     if (f.type === 'boolean') {
       plant(next, f.key, raw === 'on');
+      continue;
+    }
+    if (f.type === 'textarea') {
+      if (raw === null) continue;
+      // A multi-line string: keep the newlines, normalise CRLF, drop trailing whitespace.
+      plant(next, f.key, String(raw).replace(/\r\n/g, '\n').replace(/\s+$/, ''));
       continue;
     }
     if (f.type === 'list') {

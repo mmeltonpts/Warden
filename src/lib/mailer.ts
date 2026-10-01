@@ -111,7 +111,7 @@ export async function sendMail(
   to: string[],
   subject: string,
   text: string,
-  opts: { throttleKey?: string; html?: string } = {}
+  opts: { throttleKey?: string; html?: string; messageId?: string; replyTo?: string } = {}
 ): Promise<MailResult> {
   if (!s.enabled) return { status: 'disabled' };
   const rcpt = to.map((x) => x.trim()).filter(Boolean);
@@ -128,6 +128,11 @@ export async function sendMail(
       subject,
       text,
       ...(opts.html ? { html: opts.html } : {}),
+      // A fixed Message-ID lets a caller find this exact message again in the recipient's
+      // mailbox (the sign-in verification reads its own labels back). nodemailer wants the
+      // angle brackets; callers pass the bare id.
+      ...(opts.messageId ? { messageId: opts.messageId.startsWith('<') ? opts.messageId : `<${opts.messageId}>` } : {}),
+      ...(opts.replyTo ? { replyTo: opts.replyTo } : {}),
       headers: {
         // Keeps notifications out of anyone's vacation-responder loop, and marks them
         // machine-generated for any downstream filtering.

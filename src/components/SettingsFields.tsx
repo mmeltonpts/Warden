@@ -19,6 +19,13 @@ export function SettingsFields({ section, values }: { section: string; values: R
                   <input name={f.key} type="checkbox" defaultChecked={Boolean(val)} className="h-4 w-4" />
                   <span className="text-xs text-text-muted">enabled</span>
                 </span>
+              ) : f.type === 'textarea' ? (
+                <textarea
+                  name={f.key}
+                  rows={Math.min(16, Math.max(3, String(val ?? '').split('\n').length + 1))}
+                  defaultValue={val === undefined || val === null ? '' : String(val)}
+                  className={input}
+                />
               ) : f.type === 'list' ? (
                 <textarea
                   name={f.key}

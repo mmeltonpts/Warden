@@ -22,13 +22,19 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // invisible from every other page, and the operator only finds out by going to look.
   const counts = user
     ? await (async () => {
-        const [reports, alerts, risk, quarantine] = await Promise.all([
+        const canRespond = user.role === 'RESPONDER' || user.role === 'ADMIN';
+        const [reports, alerts, risk, quarantine, verify] = await Promise.all([
           prisma.wardenReport.count({ where: { state: 'NEW' } }),
           prisma.wardenAlert.count({ where: { state: 'NEW' } }),
           prisma.wardenRiskFlag.count({ where: { state: 'NEW' } }),
-          user.role === 'ADMIN' ? prisma.wardenQuarantine.count({ where: { reviewedBy: null } }) : Promise.resolve(0)
+          user.role === 'ADMIN' ? prisma.wardenQuarantine.count({ where: { reviewedBy: null } }) : Promise.resolve(0),
+          canRespond ? prisma.wardenStudentVpnNotice.count({ where: { state: 'QUEUED' } }) : Promise.resolve(0)
         ]);
-        return { '/reports': reports, '/alerts': alerts, '/risk': risk, ...(user.role === 'ADMIN' ? { '/quarantine': quarantine } : {}) };
+        return {
+          '/reports': reports, '/alerts': alerts, '/risk': risk,
+          ...(user.role === 'ADMIN' ? { '/quarantine': quarantine } : {}),
+          ...(canRespond ? { '/verify': verify } : {})
+        };
       })().catch(() => undefined)
     : undefined;
 

@@ -665,3 +665,88 @@ model WardenEdrAlert {
   @@index([mailbox])
   @@index([status, severity])
 }
+
+/// A "was this you?" verification sent to a staff member after a risky sign-in (a VPN or a
+/// foreign address Google flagged). Warden cannot suspend anyone; this is how a human in the
+/// loop confirms or denies a sign-in before anyone acts.
+///
+/// Two signals settle it. A reply of NO is decisive. So is the SENT email vanishing from the
+/// mailbox within minutes — attackers who take an account over almost always create a rule
+/// that deletes mail mentioning "security" or "password" so the real owner never sees the
+/// warning, and the subject here is written to trip exactly that rule. A reply of YES only
+/// lowers suspicion, because an attacker reading the mailbox can reply YES too.
+enum WardenVerifyState {
+  SENT          // email sent, waiting
+  CONFIRMED_YES // the person replied that it was them
+  DENIED        // the person replied that it was NOT them
+  HIDDEN        // the email was trashed/filtered/deleted soon after arrival — likely an attacker rule
+  EXPIRED       // no reply and the email stayed put; left for a phone call
+  ERROR         // could not send or could not check
+}
+
+model WardenSignInVerify {
+  id           String   @id @default(cuid())
+  mailbox      String
+  /// The sign-in this is about.
+  signInTs     DateTime
+  ip           String?
+  geo          String?
+  netOrg       String?  // the VPN/relay owner, for the message and the record
+  score        Int?
+  riskFlagId   String?  // the WardenRiskFlag this came from, if any
+
+  /// Short code placed in the subject, e.g. "SV-7bq2kf". Replies are matched back by it.
+  code         String   @unique
+  /// Message-ID of the email Warden sent, used to find it again in the mailbox.
+  rfcMessageId String?
+  sentAt       DateTime @default(now())
+
+  state        WardenVerifyState @default(SENT)
+  /// The deletion/filter checks run so far. JSON [{at,label,detail}]. Kept so a HIDDEN
+  /// verdict can be shown with the evidence behind it.
+  checks       String?
+  lastCheckedAt DateTime?
+  replyAt      DateTime?
+  replyExcerpt String?
+  /// New mail filter found on the account at check time, if any — a classic persistence move.
+  filterFound  String?
+  closedAt     DateTime?
+  notes        String?
+
+  @@index([state, sentAt])
+  @@index([mailbox])
+}
+
+/// A student sign-in through a VPN or privacy relay, queued for a building administrator to
+/// review. Deliberately NOT auto-sent: sign-in data cannot tell a school Chromebook from a
+/// personal phone, and an iPhone's default Private Relay looks identical to a VPN, so a human
+/// decides before any notice reaches a student. The notice, when sent, only informs and cites
+/// the handbook; discipline is the administrator's call, not Warden's.
+enum WardenStudentNoticeState {
+  QUEUED    // waiting for the building admin to review
+  SENT      // an admin approved and the notice was emailed to the student
+  DISMISSED // an admin decided it was not a violation (e.g. iCloud Private Relay)
+}
+
+model WardenStudentVpnNotice {
+  id         String   @id @default(cuid())
+  student    String
+  signInTs   DateTime
+  ip         String?
+  geo        String?
+  netOrg     String?
+  ouPath     String?  // /Student Accounts/PHS/11 — building and grade
+  building   String?  // readable name from the directory location field
+  schoolHours Boolean @default(false)
+  adminEmail String?  // building admin this was routed to
+
+  state      WardenStudentNoticeState @default(QUEUED)
+  reviewedBy String?
+  reviewedAt DateTime?
+  notes      String?
+  createdAt  DateTime @default(now())
+
+  @@unique([student, signInTs])
+  @@index([state, createdAt])
+  @@index([adminEmail])
+}
