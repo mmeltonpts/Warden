@@ -8,6 +8,10 @@ import { assertSweepSafe, protectiveSuffix, UnsafeQueryError, parseAccountCheck,
 import { ShieldAlert, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { RESPONSE_ACTIONS, isResponseAction, type ResponseAction } from '@/lib/response-actions';
+import { runUserAction, userSuspended } from '@/lib/user-actions';
+import { holdOnce, takeOnce } from '@/lib/onetime';
+import { ConfirmAction } from '@/components/ConfirmAction';
 import { Live } from './Live';
 import { HOST_CMD } from '@/lib/runtime';
 import { readProgress } from '@/lib/progress';
@@ -30,6 +34,9 @@ export const dynamic = 'force-dynamic';
  * had not registered, and clicked again, while mail was still being delivered.
  */
 const ERRORS: Record<string, string> = {
+  respconfirm: 'Nothing was done. The confirmation text did not match the mailbox exactly.',
+  respforbidden: 'Nothing was done. Response actions require the RESPONDER or ADMIN role.',
+  badaction: 'Nothing was done. Unknown action.',
   confirm:
     'Not swept. The confirmation must be exactly SWEEP — upper case, no spaces. Nothing was ' +
     'queued and no mail was touched.',
@@ -47,12 +54,12 @@ export default async function JobPage({
   searchParams
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; resp?: string; respmsg?: string; respok?: string }>;
 }) {
   const user = await currentUser();
   if (!user) redirect('/login');
   const { id } = await params;
-  const { error } = await searchParams;
+  const { error, resp, respmsg, respok } = await searchParams;
 
   const job = await prisma.wardenJob.findUnique({
     where: { id },
@@ -205,6 +212,53 @@ export default async function JobPage({
     redirect(`/jobs/${again.id}`);
   }
 
+  /**
+   * Run a response action (sign out, deprovision, reset password, suspend, un-suspend)
+   * against the account this check was about. RESPONDER or ADMIN only. The typed mailbox is
+   * re-checked here, not only in the browser, so the confirmation is a real gate rather than
+   * a client-side nicety. A reset password is handed back through a one-time token, never in
+   * the URL or the database.
+   */
+  async function runResponse(formData: FormData) {
+    'use server';
+    const u = await currentUser();
+    if (!u) redirect('/login');
+    if (u.role === 'ANALYST') redirect(`/jobs/${id}?error=respforbidden`);
+
+    const action = String(formData.get('action') ?? '');
+    const mailbox = String(formData.get('mailbox') ?? '').trim().toLowerCase();
+    const confirm = String(formData.get('confirm') ?? '').trim().toLowerCase();
+    if (!isResponseAction(action)) redirect(`/jobs/${id}?error=badaction`);
+    if (!mailbox || confirm !== mailbox) redirect(`/jobs/${id}?error=respconfirm`);
+
+    const def = RESPONSE_ACTIONS[action as ResponseAction];
+    const result = await runUserAction(s.gamPath, mailbox, action as ResponseAction);
+
+    await prisma.wardenAudit.create({
+      data: {
+        operator: u.email,
+        action: `user_${action}`,
+        target: mailbox,
+        detail: result.ok ? `${def.done}` : `FAILED: ${result.detail}`
+      }
+    }).catch(() => undefined);
+
+    const msg = result.ok ? `${mailbox} — ${def.done}.` : `Could not ${def.label.toLowerCase()}: ${result.detail}`;
+    const params = new URLSearchParams({ respmsg: msg, respok: result.ok ? '1' : '0' });
+    if (result.password) params.set('resp', holdOnce(result.password));
+    revalidatePath(`/jobs/${id}`);
+    redirect(`/jobs/${id}?${params.toString()}`);
+  }
+
+  // Account-check response panel data: the mailbox, and whether it is currently suspended.
+  const acMailbox = job.kind === 'ACCOUNT_CHECK'
+    ? (job.query || (() => { try { return JSON.parse(job.argsJson ?? '{}').user as string; } catch { return ''; } })())
+    : '';
+  const acSuspended = acMailbox && user.role !== 'ANALYST' && (job.status === 'DONE' || job.status === 'INCOMPLETE')
+    ? await userSuspended(s.gamPath, acMailbox).catch(() => null)
+    : null;
+  const newPassword = takeOnce(resp);
+
   const badge =
     job.status === 'DONE' ? 'pill-ok'
     : job.status === 'ERROR' || job.status === 'REFUSED' ? 'pill-critical'
@@ -332,6 +386,75 @@ export default async function JobPage({
             places a takeover hides, because they survive a password reset. A native mail app (Apple Mail,
             Outlook) legitimately holds a mail scope, so &ldquo;review&rdquo; means <em>look</em>, not <em>alarm</em>.
           </p>
+        </div>
+      )}
+
+      {/* Response actions. Shown on an account check for RESPONDER/ADMIN. Each one opens a
+          typed-confirmation popup and is audited; none is automatic. */}
+      {acMailbox && user.role !== 'ANALYST' && (job.status === 'DONE' || job.status === 'INCOMPLETE') && (
+        <div className="card space-y-3" style={{ borderColor: 'rgb(var(--danger) / 0.35)' }}>
+          <div>
+            <h2 className="flex items-center gap-2 text-sm font-semibold">
+              <ShieldAlert size={16} style={{ color: 'rgb(var(--danger))' }} /> Response actions
+              {acSuspended === true && <span className="pill pill-critical">currently suspended</span>}
+            </h2>
+            <p className="mt-1 text-xs text-text-muted">
+              These act on <span className="mono">{acMailbox}</span> immediately. Each one asks you to type the
+              mailbox to confirm, and is written to the audit log. For a confirmed takeover, Force sign-out +
+              Revoke app passwords + Reset password evicts the attacker while keeping the account alive.
+            </p>
+          </div>
+
+          {respmsg && (
+            <div
+              className="rounded border px-3 py-2 text-sm"
+              style={{ borderColor: respok === '1' ? 'rgb(var(--success) / 0.5)' : 'rgb(var(--danger) / 0.5)' }}
+            >
+              {respmsg}
+              {newPassword && (
+                <div className="mt-2">
+                  <div className="text-xs text-text-muted">New password (shown once — copy it now):</div>
+                  <div className="mono select-all text-base font-semibold">{newPassword}</div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            {(['signout', 'deprovision', 'reset'] as const).map((k) => {
+              const d = RESPONSE_ACTIONS[k];
+              return (
+                <div key={k}>
+                  <ConfirmAction
+                    action={runResponse}
+                    mailbox={acMailbox}
+                    actionKey={k}
+                    label={d.label}
+                    blurb={d.blurb}
+                    reversible={d.reversible}
+                    danger={d.danger === 'high'}
+                    confirmText={acMailbox}
+                  />
+                  <p className="mt-0.5 text-xs text-text-muted">{d.blurb}</p>
+                </div>
+              );
+            })}
+            <div>
+              {acSuspended === true ? (
+                <ConfirmAction action={runResponse} mailbox={acMailbox} actionKey="unsuspend"
+                  label={RESPONSE_ACTIONS.unsuspend.label} blurb={RESPONSE_ACTIONS.unsuspend.blurb}
+                  reversible={RESPONSE_ACTIONS.unsuspend.reversible} danger={false} confirmText={acMailbox} />
+              ) : (
+                <ConfirmAction action={runResponse} mailbox={acMailbox} actionKey="suspend"
+                  label={RESPONSE_ACTIONS.suspend.label} blurb={RESPONSE_ACTIONS.suspend.blurb}
+                  reversible={RESPONSE_ACTIONS.suspend.reversible} danger confirmText={acMailbox} />
+              )}
+              <p className="mt-0.5 text-xs text-text-muted">
+                {acSuspended === true ? RESPONSE_ACTIONS.unsuspend.blurb : RESPONSE_ACTIONS.suspend.blurb}
+                {acSuspended === null && ' (current suspend state unknown)'}
+              </p>
+            </div>
+          </div>
         </div>
       )}
 

@@ -27,7 +27,13 @@ const CONSEQUENTIAL = [
   'signin_verify_sent',
   'signin_verify_denied',
   'signin_verify_hidden',
-  'student_vpn_notice'
+  'student_vpn_notice',
+  // Account response actions — suspend, reset, deprovision, sign-out, un-suspend.
+  'user_suspend',
+  'user_unsuspend',
+  'user_reset',
+  'user_deprovision',
+  'user_signout'
 ];
 
 const VIEWS: Array<{ key: string; label: string }> = [
