@@ -11,13 +11,13 @@ export const dynamic = 'force-dynamic';
 export default async function AccountsPage({
   searchParams
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; user?: string }>;
 }) {
   const user = await currentUser();
   if (!user) redirect('/login');
   // The input is type="text", so `jsmith` satisfies `required` and then fails the @ check.
   // That redirect had nowhere to land until now.
-  const { error } = await searchParams;
+  const { error, user: prefill } = await searchParams;
 
   const recent = await prisma.wardenJob.findMany({
     where: { kind: 'ACCOUNT_CHECK' },
@@ -65,6 +65,7 @@ export default async function AccountsPage({
           <input
             name="user"
             required
+            defaultValue={prefill ?? ''}
             placeholder="someone@your-district.org"
             className="w-full rounded border bg-bg-elevated px-3 py-1.5 text-sm mono"
           />

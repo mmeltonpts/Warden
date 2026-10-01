@@ -109,6 +109,42 @@ export default async function RiskPage({
   }
 
   /**
+   * Investigate a flag: queue a read-only account check (filters, forwarding, delegates,
+   * app passwords, OAuth scopes — the places a takeover hides) for that mailbox, mark the
+   * flag as being looked at, and open the job. This is the "dig in" action the triage
+   * buttons alone didn't give: a filter that silently forwards or deletes mail is the
+   * single clearest sign an account was taken over, and it is exactly what the September
+   * compromises left behind.
+   */
+  async function investigate(formData: FormData) {
+    'use server';
+    const u = await currentUser();
+    if (!u) redirect('/login');
+    const id = String(formData.get('id'));
+    const flag = await prisma.wardenRiskFlag.findUnique({ where: { id } });
+    if (!flag) redirect('/risk');
+    const cfg = await getSettings(prisma);
+    const domainKey = flag.mailbox.toLowerCase().endsWith(`@${cfg.domains.students.toLowerCase()}`) ? 'students' : 'staff';
+    // Move it to Investigating so the queue shows it is being worked, unless it is already
+    // a confirmed compromise (which this must never downgrade).
+    if (flag.state === 'NEW') {
+      await prisma.wardenRiskFlag.update({
+        where: { id }, data: { state: 'INVESTIGATING', reviewedBy: u.email, reviewedAt: new Date() }
+      }).catch(() => undefined);
+    }
+    const job = await prisma.wardenJob.create({
+      data: {
+        kind: 'ACCOUNT_CHECK', operatorId: u.id, domainKey,
+        argsJson: JSON.stringify({ user: flag.mailbox }), query: flag.mailbox
+      }
+    });
+    await prisma.wardenAudit.create({
+      data: { operator: u.email, action: 'account_check', target: flag.mailbox, detail: `from risk flag (score ${flag.score})` }
+    }).catch(() => undefined);
+    redirect(`/jobs/${job.id}`);
+  }
+
+  /**
    * Clear the student VPN noise in one pass.
    *
    * Scoped to exactly the rows the operator is looking at — the current state tab AND the
@@ -512,6 +548,12 @@ export default async function RiskPage({
                       {f.asn ? `AS${f.asn}` : ''} {f.geo ?? ''}
                     </td>
                     <td className="td">
+                      <form action={investigate} className="mb-1">
+                        <input type="hidden" name="id" value={f.id} />
+                        <PendingButton className="btn btn-primary px-2 py-1 text-xs" pending="Starting…">
+                          Investigate
+                        </PendingButton>
+                      </form>
                       <div className="flex flex-wrap gap-1">
                         {(['INVESTIGATING', 'CONFIRMED_COMPROMISE', 'BENIGN'] as const).map((s) => (
                           <form key={s} action={setState}>
@@ -528,11 +570,10 @@ export default async function RiskPage({
                           </form>
                         ))}
                       </div>
-                      {f.reviewedBy && (
-                        <div className="mt-1 text-xs text-text-muted">
-                          {STATE_LABEL[f.state]} &middot; {f.reviewedBy.split('@')[0]}
-                        </div>
-                      )}
+                      <div className="mt-1 text-xs text-text-muted">
+                        <a href={`/accounts?user=${encodeURIComponent(f.mailbox)}`} className="underline">account</a>
+                        {f.reviewedBy && <> &middot; {STATE_LABEL[f.state]} &middot; {f.reviewedBy.split('@')[0]}</>}
+                      </div>
                     </td>
                   </tr>
                 );
