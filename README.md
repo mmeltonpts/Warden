@@ -119,6 +119,45 @@ At the end, the installer prints the console address and a **one-time setup code
   └──────────────────────────────────────────────┘
 ```
 
+### Or: install with Docker
+
+If you would rather run containers, the same console ships as an image,
+`ghcr.io/mmeltonpts/warden`. You need Docker with the compose plugin on a Linux host that is
+reachable from your intranet only.
+
+```bash
+git clone https://github.com/mmeltonpts/Warden.git
+cd Warden
+./docker/init.sh                 # host name, IP, port, allowed networks, HTTPS; generates secrets
+docker compose up -d
+docker compose logs warden       # shows the one-time setup code
+docker compose run --rm warden gam-setup    # guided GAM authorisation, same steps as above
+```
+
+This starts four containers:
+
+| Container | What it does |
+|---|---|
+| `db` | PostgreSQL. |
+| `warden` | The console. |
+| `scheduler` | The background jobs. |
+| `caddy` | HTTPS and the network allow list. Only its port is published. |
+
+GAM's credentials, the Claude login and job logs live in the `warden-data` volume. They
+survive upgrades and never leave that volume.
+
+The setup wizard is the same. Two things differ from a VM install:
+- **Enabling sweeps:** set `WARDEN_ALLOW_DESTRUCTIVE=1` in the `.env` next to
+  `docker-compose.yml`, then run `docker compose up -d`. That file is on the Docker host,
+  where nothing inside the container can write to it.
+- **Upgrading:** run `docker compose pull && docker compose up -d`. To stay on one release,
+  set `WARDEN_TAG` in `.env` (for example `0.1.0`).
+
+Caddy enforces the allow list using the client's real IP, which Docker preserves on a
+normal Linux host. If every request in `docker compose logs caddy` comes from one internal
+Docker address, your Docker setup is translating addresses, and the allow list cannot tell
+clients apart. In that case, rely on the host firewall instead.
+
 ## First-run setup (in the browser)
 
 Open the console address. The first page asks for the setup code and creates your admin
@@ -134,10 +173,12 @@ exists.
 4. **Reports**: your phish-report mailbox.
 5. **Alerts, Sign-in risk, Quarantine, Hunt**: the defaults are sensible. Add your public
    egress IP so sign-ins from inside your buildings score lower.
-6. **Threat feeds, KnowBe4, CrowdStrike, Claude**: optional. Each has its own test, or you
+6. **Sounds**: an alarm and red banner in every open console when a critical alert arrives.
+   Choose the severities, tone and volume, and use *Test sound*. Each browser can mute itself.
+7. **Threat feeds, KnowBe4, CrowdStrike, Claude**: optional. Each has its own test, or you
    can skip it.
-7. **Schedule**: how often each background job runs.
-8. **Finish**: starts the scheduler. **Nothing runs until you press Finish**, so a
+8. **Schedule**: how often each background job runs.
+9. **Finish**: starts the scheduler. **Nothing runs until you press Finish**, so a
    half-configured console never scans with a blank domain.
 
 You can change everything later under **Settings**, or re-run the wizard from Settings.
@@ -165,6 +206,13 @@ Under **Users**:
 - **ADMIN** can change settings and is the only role that sees the quarantine.
 
 ---
+
+## Releases
+
+Releases are tagged on GitHub (see Releases). Each one publishes a matching Docker image,
+`ghcr.io/mmeltonpts/warden:<version>`. On a VM, check out a release with
+`git checkout v0.1.0` before running the installer, or follow `main` for the latest.
+Versions below 1.0 are marked pre-release.
 
 ## Day to day
 

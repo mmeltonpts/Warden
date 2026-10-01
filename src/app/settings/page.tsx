@@ -5,8 +5,10 @@ import { prisma } from '@/lib/db';
 import { getSettings, getSettingsForDisplay, saveSettings, destructiveAllowed } from '@/lib/settings';
 import { SECTIONS, BLURB, fieldsIn, patchFromForm } from '@/lib/settings-form';
 import { SettingsFields } from '@/components/SettingsFields';
+import { TestSoundButton } from '@/components/AlertSound';
 import { falconHealth } from '@/lib/crowdstrike';
 import { ShieldOff, Lock } from 'lucide-react';
+import { HOST_CMD } from '@/lib/runtime';
 
 export const dynamic = 'force-dynamic';
 
@@ -87,6 +89,16 @@ export default async function SettingsPage({
         <button className="btn btn-primary">Save {active}</button>
       </form>
 
+      {active === 'Sounds' && (
+        <div className="card flex flex-wrap items-center gap-3 text-sm">
+          <TestSoundButton
+            tone={String((s.sound as { tone?: string })?.tone ?? 'alarm')}
+            volume={Number((s.sound as { volume?: number })?.volume ?? 70)}
+          />
+          <span className="text-xs text-text-muted">Plays the saved sound at the saved volume. Save first to hear a change.</span>
+        </div>
+      )}
+
       {active === 'CrowdStrike' && (
         <div className="card space-y-2 text-sm">
           <div className="flex flex-wrap items-center gap-3">
@@ -118,7 +130,7 @@ export default async function SettingsPage({
             <ShieldOff size={16} className="mt-0.5 shrink-0" style={{ color: 'rgb(var(--danger))' }} />
             <div className="text-text-muted">
               <strong className="text-text-primary">Sweeps are ENABLED on this host.</strong> Mail
-              deletion is live. This is gated by a root-owned systemd drop-in, not by anything on
+              deletion is live. This is gated by {HOST_CMD.gateWhere}, not by anything on
               this page &mdash; a stolen session cannot reach it.
             </div>
           </>
@@ -127,9 +139,9 @@ export default async function SettingsPage({
             <Lock size={16} className="mt-0.5 shrink-0" />
             <div className="text-text-muted">
               <strong className="text-text-primary">Sweeps are refused on this host.</strong> Scope
-              and verify work; nothing can delete mail. Enabling it needs root and a service
-              restart &mdash; deliberately not a setting on this page, because a setting is
-              reachable by anything that steals a session.
+              and verify work; nothing can delete mail. Enabling it means changing{' '}
+              {HOST_CMD.gateWhere} and restarting &mdash; deliberately not a setting on this page,
+              because a setting is reachable by anything that steals a session.
             </div>
           </>
         )}

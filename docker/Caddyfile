@@ -1,0 +1,36 @@
+# Warden front end for the Docker install. Values come from .env (see docker/init.sh).
+#
+#   WARDEN_SITES        e.g. "https://warden.your-district.org:8443, https://10.1.2.3:8443"
+#   WARDEN_ALLOW_CIDRS  networks allowed to reach the console (space-separated)
+#   WARDEN_TLS          "internal" (Caddy's own CA — browsers warn once) or
+#                       "/certs/fullchain.pem /certs/privkey.pem" for your own certificate
+
+{
+	admin off
+}
+
+{$WARDEN_SITES} {
+	tls {$WARDEN_TLS}
+
+	# Only your networks. This console can trash mail in every mailbox in the district.
+	@outside not remote_ip {$WARDEN_ALLOW_CIDRS} 127.0.0.1/8
+	respond @outside "Forbidden" 403
+
+	header {
+		X-Frame-Options DENY
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+		Strict-Transport-Security "max-age=31536000"
+	}
+
+	# Caddy passes the browser's Host header (with its port) through unchanged and sets
+	# X-Forwarded-Proto, which is what the console's same-origin check and Secure session
+	# cookie rely on.
+	reverse_proxy warden:3006 {
+		transport http {
+			# A scope across a large domain legitimately runs 8-15 minutes.
+			read_timeout 30m
+			write_timeout 30m
+		}
+	}
+}

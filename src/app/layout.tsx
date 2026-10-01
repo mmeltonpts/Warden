@@ -5,6 +5,7 @@ import { currentUser } from '@/lib/auth';
 import { destructiveAllowed, getSettings } from '@/lib/settings';
 import { isSetupComplete } from '@/lib/setup';
 import { Nav } from '@/components/Nav';
+import { AlertSound } from '@/components/AlertSound';
 import { prisma } from '@/lib/db';
 
 export const metadata: Metadata = {
@@ -64,6 +65,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           {user && <Nav role={user.role} displayName={user.displayName} counts={counts} />}
           <main className="flex-1 overflow-x-hidden p-6">{children}</main>
         </div>
+        {user && <AlertSound />}
       </body>
     </html>
   );

@@ -51,6 +51,16 @@ export interface WardenSettings extends GamSettings {
   quarantine: {
     notify: boolean;
   };
+  sound: {
+    enabled: boolean;
+    alertSeverities: string;
+    falcon: boolean;
+    falconSeverities: string;
+    tone: string;
+    volume: number;
+    repeatSeconds: number;
+    pollSeconds: number;
+  };
   crowdstrike: {
     enabled: boolean;
     cloud: string;
@@ -159,6 +169,20 @@ export const DEFAULTS: WardenSettings = {
     bannedTools: 'ScreenConnect, ConnectWise',
     // Empty on purpose: approving a remote-access tool is a decision for the district.
     approvedTools: ''
+  },
+  sound: {
+    // An audible alarm in every open console when a critical alert lands. Email can sit
+    // unread for an hour; a sound in the room where the console is open cannot.
+    enabled: true,
+    // Google Alert Center severities that sound. Google uses HIGH / MEDIUM / LOW.
+    alertSeverities: 'HIGH',
+    falcon: true,
+    falconSeverities: 'High, Critical',
+    tone: 'alarm',
+    volume: 70,
+    // Repeat while the alert is still NEW. 0 sounds once.
+    repeatSeconds: 0,
+    pollSeconds: 30
   },
   quarantine: {
     // Email the notify list when new messages are held. Quarantined mail is already
@@ -381,6 +405,21 @@ export const FIELDS = [
     help: 'Goes to the notify list, and says plainly whether Falcon BLOCKED it or only DETECTED it. Detected means it ran.' },
   { section: 'Schedule', key: 'schedule.falconMinutes', label: 'Pull CrowdStrike detections every (minutes)', type: 'number',
     help: '0 disables.' },
+  { section: 'Sounds', key: 'sound.enabled', label: 'Sound an alarm in the console for critical alerts', type: 'boolean',
+    help: 'Every open console tab plays a sound and shows a banner when a qualifying alert arrives. Each person can still mute their own browser with the speaker button at the bottom right. Browsers only allow sound after you have clicked somewhere on the page once — the banner says so if it is blocked.' },
+  { section: 'Sounds', key: 'sound.alertSeverities', label: 'Google Alert Center severities that sound', type: 'text',
+    help: 'Comma-separated: HIGH, MEDIUM, LOW. Default HIGH — Google rates confirmed phishing, suspicious sign-ins to admin accounts and government-backed attacks as HIGH. Adding MEDIUM sounds far more often.' },
+  { section: 'Sounds', key: 'sound.falcon', label: 'Also sound for CrowdStrike detections', type: 'boolean',
+    help: 'Only when the CrowdStrike integration is on.' },
+  { section: 'Sounds', key: 'sound.falconSeverities', label: 'CrowdStrike severities that sound', type: 'text',
+    help: 'Comma-separated: Informational, Low, Medium, High, Critical.' },
+  { section: 'Sounds', key: 'sound.tone', label: 'Sound', type: 'select', options: ['alarm', 'chime', 'beep'],
+    help: 'alarm: two-tone siren, hard to miss. chime: three notes, for a quiet office. beep: three short beeps. Use Test sound to hear it.' },
+  { section: 'Sounds', key: 'sound.volume', label: 'Volume (0-100)', type: 'number' },
+  { section: 'Sounds', key: 'sound.repeatSeconds', label: 'Repeat every (seconds) until someone triages it', type: 'number',
+    help: 'Keeps sounding while the alert is still NEW. 0 sounds once per alert. Something like 120 suits a console left open on a wall screen.' },
+  { section: 'Sounds', key: 'sound.pollSeconds', label: 'Check for new alerts every (seconds)', type: 'number',
+    help: 'How often each open console asks the server. New alerts are only as fresh as the ingest schedule (Schedule tab), so going below 15 buys nothing.' },
   { section: 'Quarantine', key: 'quarantine.notify', label: 'Email when messages are held in quarantine', type: 'boolean',
     help: 'A digest to the notify list for new holds, at most one per ten minutes. Held mail never reached anyone, so this is awareness rather than an alarm — but a superintendent-impersonation ACH request aimed at accounts payable is worth knowing about the same hour, because the attacker will usually try again by phone.' },
   { section: 'Hunt', key: 'hunt.senderWindowDays', label: 'Search sender indicators within (days) of first sighting', type: 'number',

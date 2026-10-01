@@ -11,6 +11,7 @@ import { sendMail } from './mailer';
 import { falconHealth } from './crowdstrike';
 import { kb4Health } from './knowbe4';
 import { aiHealth } from './ai';
+import { HOST_CMD } from './runtime';
 
 export interface Check {
   name: string;
@@ -124,6 +125,6 @@ export async function claudeChecks(prisma: PrismaClient): Promise<Check[]> {
     ok: r.status === 'ok',
     detail: r.status === 'ok'
       ? 'signed in and answering'
-      : `${r.status}${r.error ? `: ${r.error}` : ''} — sign in on the host with: sudo -u warden -H claude   then /login`
+      : `${r.status}${r.error ? `: ${r.error}` : ''} — sign in with: ${HOST_CMD.claudeLogin.split('\n')[0]}   then /login`
   }];
 }

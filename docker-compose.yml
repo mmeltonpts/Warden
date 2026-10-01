@@ -1,0 +1,75 @@
+# Warden on Docker.
+#
+#   ./docker/init.sh          answers a few questions and writes .env (secrets generated)
+#   docker compose up -d
+#   docker compose logs warden    shows the one-time setup code on first start
+#
+# Then open the console and follow the setup wizard. GAM:
+#   docker compose run --rm warden gam-setup
+#
+# Upgrade:  docker compose pull && docker compose up -d
+
+name: warden
+
+x-warden: &warden
+  image: ghcr.io/mmeltonpts/warden:${WARDEN_TAG:-latest}
+  restart: unless-stopped
+  environment:
+    DATABASE_URL: postgresql://warden:${POSTGRES_PASSWORD:?run docker/init.sh}@db:5432/warden?schema=public
+    SESSION_SECRET: ${SESSION_SECRET:?run docker/init.sh}
+    WARDEN_MASTER_KEY: ${WARDEN_MASTER_KEY:?run docker/init.sh}
+    # The gate on district-wide mail deletion. Sweeps are refused unless this is 1.
+    # It lives here, on the Docker host, because nothing inside the container can change it
+    # — never in the console's settings, where a stolen session could flip it.
+    WARDEN_ALLOW_DESTRUCTIVE: ${WARDEN_ALLOW_DESTRUCTIVE:-0}
+  volumes:
+    - warden-data:/var/lib/warden     # GAM credentials, Claude login, job logs
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: warden
+      POSTGRES_DB: warden
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run docker/init.sh}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U warden -d warden"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  warden:
+    <<: *warden
+    command: ["web"]
+
+  scheduler:
+    <<: *warden
+    command: ["scheduler"]
+
+  # HTTPS and the network allow list, in front of the console. Only this port is published.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "${WARDEN_PORT:-8443}:${WARDEN_PORT:-8443}"
+    environment:
+      WARDEN_SITES: ${WARDEN_SITES:?run docker/init.sh}
+      WARDEN_ALLOW_CIDRS: ${WARDEN_ALLOW_CIDRS:-10.0.0.0/8 172.16.0.0/12 192.168.0.0/16}
+      WARDEN_TLS: ${WARDEN_TLS:-internal}
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/certs:ro
+      - caddy-data:/data
+    depends_on:
+      - warden
+
+volumes:
+  db-data:
+  warden-data:
+  caddy-data:

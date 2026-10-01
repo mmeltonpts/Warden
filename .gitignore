@@ -8,3 +8,6 @@ next-env.d.ts
 # District-specific incident records, known-good lists and any other data that must
 # never ship with the code. See the header of scripts/import-history.ts.
 private/
+
+# Docker install: your TLS certificate and the compose .env
+certs/

@@ -21,6 +21,7 @@ const PREFERRED = [
   'General',
   'Google Workspace',
   'Notifications',
+  'Sounds',
   'Reports',
   'Alerts',
   'Sign-in risk',
@@ -57,6 +58,8 @@ export const BLURB: Record<string, string> = {
     'Messages your content-compliance rules held before delivery. They never reach a mailbox, so no scope can find them — Warden reads them from the Gmail delivery log instead. Release and deny stay in the Admin console.',
   'Sign-in risk':
     'Each mailbox is scored against its own learned normal, not a fixed rule. A wider window means better baselines and fewer false positives.',
+  Sounds:
+    'An alarm in every open console when a critical alert arrives — for the room with the console on a screen, where email goes unread.',
   Notifications:
     'Who hears about findings. Roles are resolved at send time, so adding somebody to the console adds them to the paging list.',
   'Threat feeds':

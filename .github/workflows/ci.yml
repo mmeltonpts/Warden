@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx prisma generate
+      - run: npx vitest run
+      - run: npx tsc --noEmit
+      - name: Shell scripts parse
+        run: for f in deploy/*.sh docker/*.sh; do bash -n "$f"; done
+
+  # Builds the image exactly as a release would, without publishing it, so a broken
+  # Dockerfile is found on main rather than on release day.
+  image:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: warden:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -7,6 +7,7 @@ import { getSettings, destructiveAllowed } from '@/lib/settings';
 import { assertSweepSafe, protectiveSuffix, UnsafeQueryError } from '@/lib/gam';
 import { ShieldAlert, CheckCircle2, XCircle } from 'lucide-react';
 import { Live } from './Live';
+import { HOST_CMD } from '@/lib/runtime';
 import { readProgress } from '@/lib/progress';
 
 export const dynamic = 'force-dynamic';
@@ -101,9 +102,8 @@ export default async function JobPage({
   }
   if (!destructiveAllowed()) {
     sweepBlocked =
-      'Destructive operations are disabled on this host. Sweeps are refused until the ' +
-      'root-owned gate at /etc/systemd/system/warden-web.service.d/10-destructive.conf ' +
-      'is set to 1 and the service restarted.';
+      'Destructive operations are disabled on this host. Sweeps are refused until ' +
+      `${HOST_CMD.gateWhere} is set to 1 and the service restarted.`;
   }
 
   async function createSweep(formData: FormData) {

@@ -25,6 +25,12 @@ can be read at all:
 Anything else in `.env` is a bug. (Cookie `Secure` follows the protocol nginx reports, and
 the theme is a setting — neither belongs here.)
 
+**Docker is the same rule in a different place.** The compose `.env` beside
+`docker-compose.yml` lives on the Docker host and carries the bootstraps, the host answers
+(port, sites, allow list) and `WARDEN_ALLOW_DESTRUCTIVE` — the container cannot write it,
+which is what makes it an acceptable home for the gate. Host-side commands shown in the
+console come from `src/lib/runtime.ts`, never hard-coded.
+
 ### The one deliberate exception
 
 **`WARDEN_ALLOW_DESTRUCTIVE` is NOT a UI setting and must never become one.**

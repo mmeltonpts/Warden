@@ -11,6 +11,8 @@ import {
 } from '@/lib/setup';
 import { gamChecks, mailCheck, falconChecks, kb4Checks, claudeChecks, type Check } from '@/lib/setup-checks';
 import { CheckCircle2, Circle, MinusCircle } from 'lucide-react';
+import { HOST_CMD, IN_DOCKER } from '@/lib/runtime';
+import { TestSoundButton } from '@/components/AlertSound';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,10 +44,10 @@ const GUIDE: Record<string, React.ReactNode> = {
     <div className="space-y-2">
       <p>
         Warden acts on mail through <strong>GAM7</strong>, which the installer put at{' '}
-        {code('/opt/gam7/gam')} and authorised as the {code('warden')} user. If the test below
-        fails, re-run the guided GAM setup on the host:
+        {code('/opt/gam7/gam')}{IN_DOCKER ? ' inside the container' : ''}, running as the {code('warden')} user. If the
+        test below fails, run the guided GAM setup:
       </p>
-      {pre('sudo /opt/warden/deploy/gam-setup.sh')}
+      {pre(HOST_CMD.gamSetup)}
       <p>
         It walks through creating the Google Cloud project, signing in as a super admin, and
         authorising the service account for domain-wide delegation. The last test checks the
@@ -140,12 +142,19 @@ const GUIDE: Record<string, React.ReactNode> = {
     <div className="space-y-2">
       <p>
         Optional AI triage of reported messages, using the Claude Code CLI signed in with your
-        Claude subscription — no API key is stored. The installer offers to install it; to sign
-        in, on the host run:
+        Claude subscription — no API key is stored. To sign in, run:
       </p>
-      {pre('sudo -u warden -H claude\n# then type /login and follow the link')}
+      {pre(HOST_CMD.claudeLogin)}
       <p>When the session expires, triage falls back to manual; nothing else is affected.</p>
     </div>
+  ),
+  Sounds: (
+    <p>
+      Every open console plays a sound and shows a red banner when a critical alert arrives —
+      useful when the console is up on a screen and nobody is watching email. Each person can
+      mute their own browser with the speaker button at the bottom right. Save, then use Test
+      sound below the form.
+    </p>
   ),
   Schedule: (
     <p>
@@ -246,7 +255,7 @@ export default async function SetupPage({
         </form>
         <div className="card text-xs text-text-muted">
           Lost or expired code? On the host:
-          {pre('sudo -u warden -H bash -c "cd /opt/warden && npx tsx scripts/setup-token.ts"')}
+          {pre(HOST_CMD.setupToken)}
         </div>
       </div>
     );
@@ -413,6 +422,12 @@ export default async function SetupPage({
                 )}
               </div>
             </form>
+            {step === 'Sounds' && (
+              <TestSoundButton
+                tone={String((display.sound as { tone?: string })?.tone ?? 'alarm')}
+                volume={Number((display.sound as { volume?: number })?.volume ?? 70)}
+              />
+            )}
             {OPTIONAL_SECTIONS.has(step) && (
               <form action={skip}>
                 <input type="hidden" name="__section" value={step} />
@@ -448,8 +463,8 @@ export default async function SetupPage({
                   Sweeps (trashing mail across mailboxes) are{' '}
                   <strong className="text-text-primary">{destructiveAllowed() ? 'ENABLED' : 'refused'}</strong> on this host.
                   That switch is deliberately not in this console — a setting here could be flipped
-                  by anyone who stole a session. To enable sweeps, as root on the host:
-                  {pre('sudo sed -i "s/WARDEN_ALLOW_DESTRUCTIVE=0/WARDEN_ALLOW_DESTRUCTIVE=1/" \\\n  /etc/systemd/system/warden-web.service.d/10-destructive.conf\nsudo systemctl daemon-reload && sudo systemctl restart warden-web')}
+                  by anyone who stole a session. It lives in {HOST_CMD.gateWhere}. To enable sweeps:
+                  {pre(HOST_CMD.enableSweeps)}
                 </li>
               </ol>
             </div>
