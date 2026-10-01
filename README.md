@@ -18,6 +18,8 @@ use under pressure, with the guard rails that incident showed were needed.
   It flags sign-ins from outside your home countries.
 - **Hunt.** Searches for indicators you learn about later (senders, lure text, payload hosts)
   across mail you already received. This is read-only.
+- **Verify sign-ins.** After a risky VPN or foreign staff sign-in, optionally email the person to ask whether it was them. A reply of NO — or the email being deleted or filtered within minutes, the fingerprint of an attacker hiding warnings — raises an alarm. Warden never suspends anyone; it puts a human in the loop.
+- **Student VPN notices.** Queue student VPN sign-ins for the right building administrator to review, then send a handbook notice or dismiss. Never auto-sent.
 - **Quarantine.** Tracks messages held by your Gmail content-compliance rules. Visible to
   admins only.
 - **Optional integrations:**
