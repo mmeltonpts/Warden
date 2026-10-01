@@ -1,0 +1,18 @@
+[Unit]
+Description=Warden scheduler — fires often, runs only what is due
+
+[Timer]
+# Deliberately frequent and deliberately dumb. The real cadence lives in Settings:
+# tick.ts checks each job's configured interval against when it last ran. That way an
+# admin can change "check for new phishing reports every 5 minutes" from the console at
+# 7am during an incident, without root and without touching systemd.
+#
+# A tick that finds nothing due exits in well under a second.
+OnBootSec=2min
+OnUnitActiveSec=2min
+RandomizedDelaySec=20
+Persistent=true
+Unit=warden-loginscan.service
+
+[Install]
+WantedBy=timers.target

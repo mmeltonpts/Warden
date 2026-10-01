@@ -1,0 +1,38 @@
+[Unit]
+Description=Warden — scheduler tick (runs whatever is due)
+After=network-online.target postgresql.service warden-web.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=warden
+Group=warden
+WorkingDirectory=/opt/warden
+EnvironmentFile=/opt/warden/.env
+
+# ONE entry point. tick.ts reads the interval for each job from Settings and runs only
+# what is actually due, so the cadence is an operator decision made in the console rather
+# than a root-owned file. Six hours was far too slow for a live phishing queue.
+#
+# Each job takes a row lock, so a tick that lands while a long scan is still running skips
+# it instead of starting a second pass over the same mailboxes.
+ExecStart=/usr/bin/npx tsx scripts/tick.ts
+
+# Same reason as warden-web.service: jobs in this tick can invoke the Claude CLI, which
+# reads its scope-of-action rules from $HOME/.claude/CLAUDE.md. An unset HOME loads no
+# rules and reports no error.
+Environment=HOME=/var/lib/warden
+
+# Read-only by design: these jobs raise flags and fill queues. None of them suspends an
+# account, resets a password, or deletes mail.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/warden
+
+# The report ingest alone can take 20 minutes across 1,300+ mailboxes.
+TimeoutStartSec=7200
+
+[Install]
+WantedBy=multi-user.target

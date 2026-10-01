@@ -1,0 +1,108 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: rgb(var(--bg-base));
+  color: rgb(var(--text-primary));
+  min-height: 100%;
+}
+
+/* Border token applies to every default border, matching CampusLink and Sentinel. */
+* {
+  border-color: rgb(var(--border));
+}
+
+a { color: inherit; text-decoration: none; }
+button { cursor: pointer; }
+::selection { background: rgb(var(--accent) / 0.35); }
+
+/* Thin scrollbars — a 1,360-row mailbox table is a primary surface here. */
+* { scrollbar-width: thin; scrollbar-color: rgb(var(--bg-elevated)) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: rgb(var(--bg-elevated)); border-radius: 6px; }
+
+@layer components {
+  /* ── Status pills — ported from CampusLink's Pill primitive ───────────── */
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium;
+  }
+  .pill-critical {
+    background: rgb(var(--danger) / 0.15);
+    color: rgb(var(--danger));
+    border-color: rgb(var(--danger) / 0.4);
+  }
+  .pill-high {
+    background: rgb(var(--warning) / 0.15);
+    color: rgb(var(--warning));
+    border-color: rgb(var(--warning) / 0.35);
+  }
+  .pill-medium {
+    background: rgb(var(--info) / 0.15);
+    color: rgb(var(--info));
+    border-color: rgb(var(--info) / 0.3);
+  }
+  .pill-ok {
+    background: rgb(var(--success) / 0.12);
+    color: rgb(var(--success));
+    border-color: rgb(var(--success) / 0.3);
+  }
+  .pill-muted {
+    background: rgb(var(--bg-elevated));
+    color: rgb(var(--text-muted));
+    border-color: rgb(var(--border));
+  }
+
+  .card {
+    @apply rounded border bg-bg-surface p-4;
+  }
+  .btn {
+    @apply inline-flex items-center gap-2 rounded border px-3 py-1.5 text-sm font-medium
+           transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+    background: rgb(var(--bg-elevated));
+  }
+  .btn:hover:not(:disabled) { background: rgb(var(--accent) / 0.2); }
+  .btn-primary {
+    background: rgb(var(--accent));
+    color: #fff;
+    border-color: rgb(var(--accent));
+  }
+  .btn-primary:hover:not(:disabled) { background: rgb(var(--accent-hover)); }
+  /*
+   * SOLID red fills exactly one button in this application: the one that trashes mail
+   * across a domain. Nothing else may use it.
+   *
+   * That claim used to be written here and was false — `btn-danger` was also on the
+   * verdict buttons for reports, alerts, risk flags and user disable. Those are all
+   * reversible triage decisions, and an operator clicks hundreds of them in a night. That
+   * is motor training for the one click that deletes district mail, and by the time they
+   * reach the sweep gate their hand already knows what a red button means.
+   *
+   * Reversible-but-serious actions get `btn-verdict` instead: red TEXT on the ordinary
+   * button surface. Same semantic family, unmistakably not the same weight, and it does
+   * not rely on the operator noticing a shade.
+   */
+  .btn-danger {
+    background: rgb(var(--danger));
+    color: #fff;
+    border-color: rgb(var(--danger));
+    @apply px-4 py-2 text-base font-semibold;
+  }
+  .btn-danger:hover:not(:disabled) { background: rgb(var(--danger) / 0.85); }
+
+  .btn-verdict {
+    background: rgb(var(--bg-elevated));
+    color: rgb(var(--danger));
+    border-color: rgb(var(--danger) / 0.5);
+  }
+  .btn-verdict:hover:not(:disabled) { background: rgb(var(--danger) / 0.12); }
+
+  .th { @apply px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-text-muted; }
+  .td { @apply px-3 py-2 align-top text-sm; }
+  .mono { @apply font-mono text-xs; }
+}

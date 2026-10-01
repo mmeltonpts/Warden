@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "WardenIocKind" ADD VALUE IF NOT EXISTS 'KNOWN_GOOD';

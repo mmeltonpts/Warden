@@ -1,0 +1,45 @@
+[Unit]
+Description=Warden — phishing IR console
+Documentation=file:/opt/warden/README.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=warden
+Group=warden
+WorkingDirectory=/opt/warden
+EnvironmentFile=/opt/warden/.env
+ExecStart=/usr/bin/npm run start
+Restart=on-failure
+RestartSec=5
+
+# Binds to 127.0.0.1 only; nginx terminates TLS and is the sole public listener.
+Environment=NODE_ENV=production
+Environment=HOSTNAME=127.0.0.1
+
+# Set explicitly, not left to systemd's implicit passwd lookup. This process spawns the
+# Claude CLI for triage, and the CLI reads its scope-of-action rules from
+# $HOME/.claude/CLAUDE.md. If HOME is unset or wrong the rules load silently as nothing —
+# the triage keeps working and the constraints are simply absent, which is the worst
+# possible failure mode because it looks identical to success.
+# ProtectHome=yes below blanks /home and /root; it does not touch /var/lib.
+Environment=HOME=/var/lib/warden
+
+# Hardening. This process shells out to GAM, which holds domain-wide delegation —
+# it gets no more of the filesystem than it needs.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/warden /opt/warden/.next
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=no
+
+[Install]
+WantedBy=multi-user.target

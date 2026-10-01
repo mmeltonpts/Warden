@@ -1,0 +1,52 @@
+# Warden reverse proxy. Rendered by deploy/render-nginx.sh from /etc/warden/install.conf —
+# edit the answers there (re-run deploy/install.sh), not the rendered file.
+#
+# Warden can delete mail in every mailbox in the district. It must not be reachable from
+# the open internet: the allow list below and the firewall are the controls.
+
+server {
+    listen __PORT__ __SSL__;
+    listen [::]:__PORT__ __SSL__;
+    server_name __SERVER_NAME__ _;
+
+__TLS_BLOCK__
+
+    access_log /var/log/nginx/warden-access.log;
+    error_log  /var/log/nginx/warden-error.log;
+
+    # --- network restriction ------------------------------------------------
+    # Only these networks may reach the console. Keep your district's PUBLIC egress range
+    # out of this list: traffic arriving from it would mean the host had been exposed.
+__ALLOW__
+    allow 127.0.0.1;
+    deny  all;
+    # -------------------------------------------------------------------------
+
+    client_max_body_size 8m;
+
+    add_header X-Frame-Options DENY always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy same-origin always;
+
+    location / {
+        proxy_pass http://127.0.0.1:3006;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        # $http_host keeps the port. With $host (port stripped), Next.js Server Actions
+        # reject every POST: the Origin header carries the port, the forwarded host would
+        # not, and the CSRF check aborts the action.
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-Host $http_host;
+        proxy_set_header X-Forwarded-Port __PORT__;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # The session cookie is marked Secure exactly when this says https.
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+
+        # A scope across a large domain legitimately runs 8-15 minutes.
+        proxy_read_timeout 1800s;
+        proxy_send_timeout 1800s;
+    }
+}

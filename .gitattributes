@@ -1,0 +1,13 @@
+# This repo is authored on Windows and deployed to Ubuntu. A CRLF shebang makes
+# the kernel look for a binary literally named "bash\r" and the script dies with
+# "command not found" — or, worse, `set -euo pipefail` becomes an invalid option
+# name and the script runs on WITHOUT strict mode.
+* text=auto eol=lf
+*.sh      text eol=lf
+*.conf    text eol=lf
+*.service text eol=lf
+*.timer   text eol=lf
+*.ts      text eol=lf
+*.tsx     text eol=lf
+*.json    text eol=lf
+*.css     text eol=lf

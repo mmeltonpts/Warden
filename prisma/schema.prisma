@@ -1,0 +1,667 @@
+// Warden — phishing incident response console.
+//
+// Model prefix `Warden*` follows the Sentinel convention so these tables can share a
+// database with a sibling app without collision.
+//
+// Two tables are append-only by policy and must never gain an update path:
+//   WardenAudit    — who ran what destructive action, and what it touched
+//   WardenFinding  — the evidence a job saw at the moment it ran
+//
+// Everything a sweep touches is recoverable (Trash, never delete), but the record of
+// *who swept* is the thing that cannot be reconstructed after the fact.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── people ──────────────────────────────────────────────────────────────────
+
+enum WardenRole {
+  ANALYST // read-only: scope, triage, view
+  RESPONDER // + execute sweeps, after preview and confirmation
+  ADMIN // + manage rules, users, IOCs
+}
+
+model WardenUser {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  displayName  String
+  passwordHash String
+  role         WardenRole @default(ANALYST)
+  disabled     Boolean    @default(false)
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+
+  jobs     WardenJob[]
+  sessions WardenSession[]
+}
+
+model WardenSession {
+  id        String     @id @default(cuid())
+  userId    String
+  user      WardenUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime   @default(now())
+
+  @@index([userId])
+}
+
+// ─── work ────────────────────────────────────────────────────────────────────
+
+enum WardenJobKind {
+  SCOPE // read-only blast-radius enumeration
+  SWEEP // destructive: trash matching messages
+  VERIFY // post-sweep confirmation that nothing survived
+  ACCOUNT_CHECK // per-user persistence indicators
+  RULE_DRYRUN // count a proposed compliance rule against live mail
+}
+
+enum WardenJobStatus {
+  QUEUED
+  RUNNING
+  DONE
+  /// GAM ran but did not finish: non-zero exit, or killed at the scan timeout.
+  ///
+  /// This exists because DONE used to be set unconditionally. A scope that GAM aborted
+  /// after 12 of 1,363 mailboxes showed green, "12 messages across 4 mailboxes", and a
+  /// red "Trash 12 messages" button — and the operator concluded the campaign hit four
+  /// mailboxes. Partial results are not a finding, and they must never open a sweep gate.
+  INCOMPLETE
+  ERROR
+  REFUSED // failed a safety gate — never reached GAM
+  /// Withdrawn by an operator before it started. Never reached GAM either.
+  ///
+  /// Only a QUEUED job can be cancelled. Killing GAM partway through a SWEEP would leave
+  /// an unknown number of messages trashed and an operator with no way to find out which
+  /// — worse than either finishing or never starting.
+  CANCELLED
+}
+
+model WardenJob {
+  id         String          @id @default(cuid())
+  kind       WardenJobKind
+  status     WardenJobStatus @default(QUEUED)
+  operatorId String
+  operator   WardenUser      @relation(fields: [operatorId], references: [id])
+
+  domainKey String  @default("staff")
+  query     String?
+  argsJson  String?
+
+  createdAt  DateTime  @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+  exitCode   Int?
+  /// Killed at scanTimeoutSeconds. Computed since the beginning and, until now, discarded
+  /// before it reached a pixel — `grep -rn timedOut src/app` returned nothing.
+  timedOut   Boolean   @default(false)
+  summary    String?
+  logPath    String?
+
+  // A SWEEP spawns its VERIFY. Verification is part of the operation, not optional.
+  parentId String?
+  parent   WardenJob?  @relation("JobChain", fields: [parentId], references: [id])
+  children WardenJob[] @relation("JobChain")
+
+  findings WardenFinding[]
+  incident WardenIncident? @relation(fields: [incidentId], references: [id])
+
+  incidentId String?
+
+  @@index([status])
+  @@index([incidentId])
+}
+
+model WardenFinding {
+  id      String    @id @default(cuid())
+  jobId   String
+  job     WardenJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  mailbox String?
+  msgId   String?
+  sender  String?
+  subject String?
+  dateHdr String?
+  labels  String?
+
+  @@index([jobId])
+  @@index([sender])
+}
+
+// ─── incidents & indicators ──────────────────────────────────────────────────
+
+model WardenIncident {
+  id        String    @id @default(cuid())
+  name      String
+  campaign  String?
+  openedAt  DateTime  @default(now())
+  closedAt  DateTime?
+  notes     String?
+  jobs      WardenJob[]
+  iocs      WardenIoc[]
+  reports   WardenReport[]
+}
+
+enum WardenIocKind {
+  PAYLOAD_HOST
+  SENDER
+  LURE_STRING
+  IP
+  /// Confirmed-legitimate mail that staff keep reporting. Suppresses incident
+  /// creation so recurring vendor notices do not consume triage every month.
+  KNOWN_GOOD
+}
+
+model WardenIoc {
+  id         String         @id @default(cuid())
+  kind       WardenIocKind
+  value      String         @unique
+  campaign   String?
+  firstSeen  DateTime?
+  notes      String?
+  addedBy    String?
+  addedAt    DateTime       @default(now())
+  incident   WardenIncident? @relation(fields: [incidentId], references: [id])
+  incidentId String?
+
+  @@index([kind])
+}
+
+// ─── audit (append-only) ─────────────────────────────────────────────────────
+
+model WardenAudit {
+  id           String   @id @default(cuid())
+  ts           DateTime @default(now())
+  operator     String
+  action       String
+  target       String?
+  query        String?
+  previewCount Int?
+  resultCount  Int?
+  verified     Boolean  @default(false)
+  detail       String?
+
+  @@index([ts])
+}
+
+// ─── configuration lives in the DB, per CampusLink convention ────────────────
+// .env carries only DATABASE_URL, SESSION_SECRET and the destructive-ops gate.
+
+model WardenSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+}
+
+// ─── sign-in baselining ──────────────────────────────────────────────────────
+//
+// Static thresholds do not work. Consumer ISP and carrier IPs routinely geolocate to
+// the nearest metro hub, often across a state line, so a naive "out of state" rule
+// flags several hundred staff a week. AT&T Mobility IPv6
+// geolocates to Texas regardless of where the handset is.
+//
+// So: learn each mailbox's own normal, then score deviation from it.
+
+model WardenLoginEvent {
+  id          String   @id @default(cuid())
+  mailbox     String
+  ts          DateTime
+  eventName   String // login_success | login_challenge | password_edit | ...
+  ip          String?
+  ipPrefix    String? //  /24 for v4, /48 for v6 — the unit we actually learn on
+  asn         String?
+  geo         String? //  networkInfo.subdivisionCode, e.g. US-IN
+  challenge   String? //  login_challenge_method
+  suspicious  Boolean  @default(false)
+  sensitive   String? //  sensitive_action_name
+  userAgent   String?
+  importedAt  DateTime @default(now())
+
+  @@unique([mailbox, ts, eventName, ip])
+  @@index([mailbox, ts])
+  @@index([ts])
+}
+
+/// One learned "normal" per mailbox. Rebuilt from WardenLoginEvent on a rolling window.
+model WardenBaseline {
+  mailbox        String   @id
+  knownPrefixes  String // JSON string[]  — IP prefixes seen at least twice
+  knownAsns      String // JSON string[]
+  knownGeos      String // JSON string[]
+  knownChallenges String // JSON string[]
+  usesPasskey    Boolean  @default(false) //  phishing-resistant — strongly lowers risk
+  typicalHours   String // JSON number[]  — UTC hours with activity
+  eventCount     Int      @default(0)
+  firstSeen      DateTime?
+  lastSeen       DateTime?
+  rebuiltAt      DateTime @default(now())
+  /// A baseline built from too little history over-flags. Below this, score is advisory.
+  mature         Boolean  @default(false)
+}
+
+enum WardenRiskState {
+  NEW
+  INVESTIGATING
+  CONFIRMED_COMPROMISE
+  BENIGN
+  SUPPRESSED
+}
+
+/// A sign-in that deviated from the mailbox's baseline enough to want a human.
+model WardenRiskFlag {
+  id         String          @id @default(cuid())
+  mailbox    String
+  ts         DateTime
+  score      Int
+  reasons    String // JSON string[] — human-readable, shown verbatim in the UI
+  ip         String?
+  asn        String?
+  geo        String?
+  challenge  String?
+  suspicious Boolean         @default(false)
+  state      WardenRiskState @default(NEW)
+  notes      String?
+  reviewedBy String?
+  reviewedAt DateTime?
+  createdAt  DateTime        @default(now())
+
+  @@unique([mailbox, ts])
+  @@index([state, score])
+  @@index([mailbox])
+}
+
+/// Bookkeeping for the 6-hourly scheduled scan.
+model WardenScanRun {
+  id          String    @id @default(cuid())
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+  windowStart DateTime
+  windowEnd   DateTime
+  eventsSeen  Int       @default(0)
+  eventsNew   Int       @default(0)
+  flagsRaised Int       @default(0)
+  baselines   Int       @default(0)
+  ok          Boolean   @default(false)
+  error       String?
+
+  @@index([startedAt])
+}
+
+// ─── staff phish reports ─────────────────────────────────────────────────────
+//
+// 504 reports from 190 staff over 180 days went to a decommissioned PhishER tenant.
+// The detection worked; the pipeline was disconnected. This table is the pipeline.
+
+enum WardenReportState {
+  NEW
+  TRIAGED
+  CONFIRMED_PHISH
+  KNOWN_GOOD // matched the suppression list — no incident raised
+  /// Unwanted bulk mail, but not a targeted attack. Distinct from BENIGN on purpose:
+  /// BENIGN is legitimate mail someone misreported and the reporter should be reassured;
+  /// SPAM is junk that got through and the sender or pattern is worth blocking. Same
+  /// "no incident", different follow-up.
+  SPAM
+  BENIGN
+  DUPLICATE
+}
+
+model WardenReport {
+  id        String            @id @default(cuid())
+  /// Gmail message id of the REPORT (not the original), for de-duplication.
+  msgId     String            @unique
+  reporter  String
+  reportedAt DateTime
+  /// Where this report came from: PAB (forwarded to a mailbox) or GOOGLE_ALERT
+  /// (Gmail's own "Report phishing", which forwards nothing and only raises an alert).
+  source    String            @default("PAB")
+  /// The Alert Center alert describing this same event, when there is one. Triage once.
+  alertId   String?
+  /// reporter|sender|normalised-subject. See dedupeKey() in src/lib/reports.ts.
+  dedupeKey String?
+
+  /// Mailbox the report was addressed to — carries the reporter's disposition.
+  reportedTo String?
+
+  /// Extracted from the forwarded original.
+  originalSender  String?
+  originalSubject String?
+  originalTo      String?
+  payloadHosts    String? // JSON string[]
+  /// Full URLs, redirect wrappers already unwrapped. Rendered DEFANGED, never as links.
+  payloadUrls     String? // JSON string[]
+
+  /// The forwarded report as GAM returned it, capped. Without this the triage queue shows
+  /// a subject line and asks an analyst to judge it, which is not a decision anyone can
+  /// make honestly. Null on rows ingested before this column existed — the ingest script
+  /// backfills those in place rather than re-creating them.
+  bodyText  String?
+
+  state     WardenReportState @default(NEW)
+  notes     String?
+  reviewedBy String?
+  reviewedAt DateTime?
+
+  /// Claude triage, from triageMessage(). ADVISORY ONLY: it never gates a sweep, a lock
+  /// or a state change — a human decides, and aiRanBy records which human asked.
+  ///
+  /// Stored rather than recomputed because the CLI session expires, the model is not
+  /// deterministic, and an analyst comparing notes with a colleague at 22:00 must see the
+  /// same words the colleague saw. Null aiStatus means triage has never been run.
+  aiVerdict String?   // JSON TriageVerdict
+  aiStatus  String?   // ok | disabled | unavailable | timeout | bad_output
+  aiRanAt   DateTime?
+  aiRanBy   String?
+
+  incident   WardenIncident? @relation(fields: [incidentId], references: [id])
+  incidentId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([state, reportedAt])
+  @@index([dedupeKey])
+  @@index([alertId])
+  @@index([originalSender])
+  @@index([originalSubject])
+}
+
+// ─── KnowBe4 mirror ──────────────────────────────────────────────────────────
+//
+// A local cache of the KSAT roster. 2,644 users is six paginated API calls and roughly
+// twenty seconds, which is far too slow for a page load. More importantly, the whole value
+// of this data is JOINING it against Warden's own tables — risk flags, reports, baselines —
+// and SQL can only do that if both sides live in the same database.
+//
+// Written only by scripts/sync-knowbe4.ts. The web app never writes here: KSAT is the
+// system of record and this is a mirror of it.
+
+model WardenKb4User {
+  kb4Id          Int     @id
+  email          String  @unique
+  firstName      String?
+  lastName       String?
+  jobTitle       String?
+  department     String?
+  division       String?
+  location       String?
+  managerEmail   String?
+  employeeNumber String?
+  /// 0..150 observed on this tenant. KnowBe4 permits values above 100 when a user fails
+  /// more interaction types than tests sent. A prior, never evidence — capped at +12 in
+  /// scoring and unable to manufacture a finding on its own.
+  phishPronePct  Float?
+  riskScore      Float?
+  status         String?
+  groupIds       String  @default("[]") // JSON number[]
+  aliases        String  @default("[]") // JSON string[]
+  provisioningManaged Boolean @default(false)
+  joinedOn       DateTime?
+  lastSignIn     DateTime?
+  syncedAt       DateTime @default(now())
+
+  @@index([phishPronePct])
+  @@index([department])
+}
+
+/// Exactly one row. Snapshot of GET /account plus sync bookkeeping, so the dashboard can
+/// state how stale it is instead of implying it is live.
+model WardenKb4Account {
+  id                Int       @id @default(1)
+  name              String
+  subscriptionLevel String?
+  subscriptionEnds  DateTime?
+  seats             Int?
+  riskScore         Float?
+  admins            String    @default("[]") // JSON {name,email}[]
+  userCount         Int       @default(0)
+  syncedAt          DateTime  @default(now())
+  lastError         String?
+}
+
+// ─── Google Workspace Alert Center ───────────────────────────────────────────
+//
+// A reporting channel entirely separate from the Phish Alert Button. When a user clicks
+// Gmail's own "Report phishing", nothing is forwarded anywhere — Google raises an alert and
+// that is the only record. 101 user-reported phishing alerts existed before Warden read
+// this API, none of which appeared in the PAB mailbox.
+//
+// Pulled through GAM rather than from the alert EMAIL, because the email arrives up to 24
+// hours late and carries far less: the API gives message ids, recipients, subjects, body
+// snippets and attachment hashes immediately.
+//
+// `rfcMessageId` is an RFC822 Message-ID, not a Gmail API id. It cannot be passed to
+// `show messages ids`, but it IS searchable as `rfc822msgid:<id>`, which turns a single
+// user report straight into a domain-wide scope.
+
+enum WardenAlertState {
+  NEW
+  TRIAGED
+  INVESTIGATING
+  CONFIRMED_PHISH // mail verdicts
+  SPAM
+  KNOWN_GOOD
+  CONFIRMED_COMPROMISE // identity verdicts
+  BENIGN // shared: not a threat, whatever the kind
+  DUPLICATE
+}
+
+model WardenAlert {
+  alertId    String   @id
+  type       String
+  source     String?
+  severity   String?
+  googleState String? // metadata.status from Google — NOT Warden's triage state
+  createTime DateTime
+  startTime  DateTime?
+  endTime    DateTime?
+
+  /// The affected account, for identity alerts (leaked password, suspicious login).
+  email      String?
+  /// The sender, for Gmail alerts.
+  fromHeader String?
+  ip         String?
+
+  subject       String?
+  recipient     String?
+  rfcMessageId  String?
+  bodySnippet   String?
+  attachmentSha String? // JSON string[]
+  messageCount  Int     @default(0)
+
+  /// Filled from RDAP so an operator reads a network owner rather than an opaque
+  /// IPv6 address. See src/lib/rdap.ts.
+  ipOrg           String?
+  ipNet           String?
+  ipClass         String? // residential | anonymizer | unknown
+  /// Country the netblock is REGISTERED in, from RDAP. A registry fact, not geolocation:
+  /// good for "a Nigerian ISP", weak for cloud and VPN ranges registered in the US.
+  ipCountry       String?
+
+  investigateLink String?
+  state           WardenAlertState  @default(NEW)
+  notes           String?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  ingestedAt      DateTime @default(now())
+
+  @@index([type, createTime])
+  @@index([state, createTime])
+}
+
+/// Cached IP ownership from RDAP. Allocations change on the order of years, so this is
+/// written once per network and read thereafter — the registries are not hammered.
+model WardenNetwork {
+  /// /24 for IPv4, /32 for IPv6. Finer than the usual allocation on purpose: Cloudflare
+  /// WARP holds 2a09:bac2::/32 and 2a09:bac3::/32 as separate registrations.
+  netKey    String   @id
+  prefix    String
+  name      String?
+  org       String?
+  cc        String?
+  source    String?
+  sampleIp  String?
+  fetchedAt DateTime @default(now())
+
+  @@index([org])
+}
+
+/// When each scheduled job last ran.
+///
+/// The cadence lives in Settings, not in a systemd timer: a timer is a root-owned file, and
+/// "how often do we check for new phishing reports" is an operational decision an admin
+/// should be able to change at 7am without a shell. A single fast timer calls tick.ts, and
+/// tick.ts decides what is due from these rows plus the configured intervals.
+model WardenScheduleState {
+  key        String   @id
+  lastRunAt  DateTime?
+  lastOk     Boolean  @default(true)
+  lastDetail String?
+  running    Boolean  @default(false)
+  /// Set when a run starts, cleared when it ends. Used to break a stuck lock.
+  startedAt  DateTime?
+  runCount   Int      @default(0)
+}
+
+/// Bulk indicators from public feeds — URLhaus, ThreatFox, OpenPhish, PhishTank.
+///
+/// DELIBERATELY SEPARATE from WardenIoc. Feeds carry tens of thousands of rows; the
+/// curated table holds indicators somebody here confirmed by hand, and mixing them would
+/// bury 47 verified entries under 100,000 unverified ones and make the IOC page useless.
+///
+/// These are matched LOCALLY against payload hosts already extracted from reports. They are
+/// never fed to a Gmail search: Gmail cannot match a domain inside a message body (a scan
+/// for a domain provably present returned zero), so hunting feed URLs through GAM would be
+/// tens of thousands of queries that structurally cannot hit.
+model WardenFeedIoc {
+  id        String    @id @default(cuid())
+  source    String
+  kind      String // url | domain | ip
+  value     String
+  /// Normalised host, so a feed URL can be matched against an extracted payload host.
+  host      String?
+  malware   String?
+  firstSeen DateTime?
+  fetchedAt DateTime  @default(now())
+
+  @@unique([source, value])
+  @@index([host])
+  @@index([kind])
+}
+
+/// A curated indicator matching something Warden already holds. Append-only.
+model WardenIocHit {
+  id        String   @id @default(cuid())
+  /// Which list matched: 'curated' or a feed name.
+  source    String
+  iocValue  String
+  kind      String
+  /// Where it matched: report | login | mailbox
+  surface   String
+  subject   String?
+  mailbox   String?
+  detail    String?
+  reportId  String?
+  notified  Boolean  @default(false)
+  ts        DateTime @default(now())
+
+  @@index([ts])
+  @@index([iocValue])
+  @@index([notified])
+}
+
+/// A message held in admin quarantine, read from the Gmail delivery log.
+///
+/// Quarantined mail never reaches a mailbox, so every scope Warden runs — `print messages`
+/// — is blind to it. A superintendent-impersonation ACH request aimed at accounts payable
+/// on 2026-09-29 was held by content-compliance rule 46 and did not exist as far as this
+/// console could tell. Google has no quarantine API; the delivery log (Reports API,
+/// application "gmail") records every quarantine decision with the rule that made it.
+///
+/// Release/deny still happens in the Admin console — there is no API for it — so this is a
+/// record and an alerting surface, not a control.
+model WardenQuarantine {
+  id          String   @id @default(cuid())
+  msgId       String
+  recipient   String
+  sender      String?
+  subject     String?
+  senderIp    String?
+  attachments Int      @default(0)
+  linkDomains String?  // JSON string[]
+  rules       String   // JSON RuleHit[] — every rule that fired, not just the quarantining one
+  ruleName    String?  // the rule that quarantined it
+  matched     String?  // what that rule matched on, e.g. "Jane Superintendent"
+  heldAt      DateTime
+  /// Indicator this message matched, if any — curated or feed. Set at ingest.
+  iocHit      String?
+  reviewedBy  String?
+  reviewedAt  DateTime?
+  notes       String?
+  firstSeenAt DateTime @default(now())
+
+  @@unique([msgId, recipient])
+  @@index([heldAt])
+  @@index([ruleName])
+}
+
+/// A CrowdStrike Falcon alert, mirrored read-only.
+///
+/// Endpoint detections are the half of an intrusion mail filtering never sees. Rogue
+/// remote-access clients can run detected-but-not-blocked for days, relaying through
+/// infrastructure already known from a phishing campaign, while nothing in a mail console
+/// knows. Falcon is the system of record; this table is a cache for correlation.
+model WardenEdrAlert {
+  compositeId  String   @id
+  createdAt    DateTime
+  updatedAt    DateTime
+  severity     Int
+  severityName String
+  status       String   // new | in_progress | closed | reopened
+  product      String?  // epp | overwatch | idp | …
+  name         String?
+  displayName  String?
+  description  String?
+  tactic       String?
+  technique    String?
+  techniqueId  String?
+  hostname     String?
+  deviceId     String?
+  localIp      String?
+  userName     String?
+  /// user_name mapped to a staff/student mailbox, so the alert joins sign-ins and reports.
+  mailbox      String?
+  /// Where mailbox came from: "alert" (Falcon named the user) or "host-login" (the alert ran
+  /// as SYSTEM, so the person is whoever was signed in to the host at that moment, from
+  /// Falcon login history). Remote-access services run as SYSTEM — without this, every one
+  /// of the ScreenConnect detections read "no user".
+  userSource   String?
+  /// Raw login-history entry used, e.g. "DISTRICT\jane.doe@example.org".
+  loginUser    String?
+  loginAt      DateTime?
+  /// "Prevention, operation blocked." vs "Detection, standard detection." — the difference
+  /// between a stopped attack and a running one.
+  action       String?
+  blocked      Boolean  @default(false)
+  filename     String?
+  cmdline      String?
+  parentCmd    String?
+  grandCmd     String?
+  sha256       String?
+  /// Remote-access relays and URL hosts pulled from the process tree. JSON string[].
+  hosts        String?
+  /// First Warden indicator or feed entry the process tree matched.
+  iocHit       String?
+  falconLink   String?
+  notified     Boolean  @default(false)
+  syncedAt     DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([hostname])
+  @@index([mailbox])
+  @@index([status, severity])
+}
