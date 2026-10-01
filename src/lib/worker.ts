@@ -18,7 +18,7 @@ import { sendMail, sweepNotice, verifyAlert } from './mailer';
 import { errText } from './errors';
 import {
   runScope, runSweep, runVerify, parseSweepResult, assertSweepSafe,
-  protectiveSuffix, ACCOUNT_CHECKS, flagsFromAccountCheck,
+  protectiveSuffix, ACCOUNT_CHECKS, flagsFromAccountCheck, parseAccountCheck,
   UnsafeQueryError, DestructiveDisabledError, LOG_DIR, labelSwept, sweptMailboxes
 } from './gam';
 import { spawn } from 'node:child_process';
@@ -296,6 +296,7 @@ async function doAccountCheck(job: { id: string; argsJson: string | null; operat
   const logPath = path.join(LOG_DIR, `${job.id}.out`);
   await (await import('node:fs/promises')).writeFile(logPath, blob, 'utf8');
   const flags = flagsFromAccountCheck(blob);
+  const report = parseAccountCheck(blob);
 
   // Enumerating one named person's filters, delegates, app passwords and OAuth grants is
   // among the most invasive things this console does, and it left no audit trace at all.
@@ -314,14 +315,14 @@ async function doAccountCheck(job: { id: string; argsJson: string | null; operat
     }
   }).catch(() => undefined);
 
+  // A verdict first, then every mechanism by name — "Filters: none, Forwarding: off, …" —
+  // so the one-line summary already says clean vs review, and the job page shows the detail.
+  const line = report.mechanisms.map((m) => `${m.name}: ${m.summary}`).join(' · ');
   const summary = failed.length
-    ? `INCONCLUSIVE — ${failed.join(', ')} did not complete. ` +
-      (flags.length
-        ? `Found so far: ${flags.join(', ')}. Other mechanisms were NOT checked.`
-        : 'Nothing found in the checks that ran, but this is not a clean result.')
-    : flags.length
-      ? flags.join(', ')
-      : 'clean — no persistence indicators';
+    ? `INCONCLUSIVE — ${failed.join(', ')} did not complete, so this is not a clean result. ${line}`
+    : report.verdict === 'review'
+      ? `REVIEW — ${line}`
+      : `CLEAN — no filters, forwarding, delegates, app passwords, or mail-capable apps you need to question. ${line}`;
 
   return { exitCode: failed.length ? 1 : 0, timedOut, completed: failed.length === 0, logPath, summary };
 }

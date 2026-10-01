@@ -428,3 +428,140 @@ export async function labelSwept(
     detail: failed ? `labelling FAILED for ${failed} batch(es)` : `labelled "${label}" in ${mailboxes.length} mailbox(es)`
   };
 }
+
+/**
+ * Parse the account-check blob into a per-mechanism breakdown with an overall verdict, so
+ * the job page can say plainly "clean" vs "review these", with the detail behind each line
+ * — not just a terse flag string. The blob is the concatenated output of ACCOUNT_CHECKS,
+ * each block headed `===== <name> (exit N[, TIMED OUT]) =====`.
+ *
+ * Verdict is deliberately conservative: anything that can persist past a password reset
+ * (a filter, forwarding, a delegate, an app password, or an OAuth app that can read or
+ * change mail) is surfaced for REVIEW with a human to name it, because a legitimate mail
+ * client and an attacker's grant look identical from here. A check that did not complete
+ * makes the whole result INCONCLUSIVE — silence must never read as clean.
+ */
+export interface OAuthApp {
+  clientId: string;
+  name: string;
+  scopes: string[];
+  mailAccess: boolean;
+}
+export interface AccountMechanism {
+  name: string;
+  status: 'clean' | 'review' | 'failed';
+  summary: string;
+  detail: string[];
+}
+export interface AccountCheckReport {
+  verdict: 'clean' | 'review' | 'inconclusive';
+  mechanisms: AccountMechanism[];
+  apps: OAuthApp[];
+}
+
+const MAIL_SCOPE =
+  /^https:\/\/(?:mail\.google\.com\/?|www\.googleapis\.com\/auth\/gmail\.(?:modify|settings\.basic|settings\.sharing|compose|send|insert|labels))/;
+
+function blockOf(blob: string, name: string): { body: string; exit: number; timedOut: boolean } | null {
+  // Line-based rather than one big RegExp: the headers are `===== <name> (exit N[, TIMED OUT]) =====`.
+  const lines = blob.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const h = lines[i].match(/^=====\s*(\S+)\s*\(exit (-?\d+)(, TIMED OUT)?\)\s*=====\s*$/);
+    if (!h || h[1] !== name) continue;
+    const body: string[] = [];
+    for (let j = i + 1; j < lines.length && !/^=====/.test(lines[j]); j++) body.push(lines[j]);
+    return { exit: Number(h[2]), timedOut: Boolean(h[3]), body: body.join('\n') };
+  }
+  return null;
+}
+
+function countShow(body: string): number {
+  return Number(body.match(/Show (\d+)\b/)?.[1] ?? '0');
+}
+
+export function parseOAuthApps(body: string): OAuthApp[] {
+  const apps: OAuthApp[] = [];
+  const parts = body.split(/^\s*Client ID:\s*/m).slice(1);
+  for (const p of parts) {
+    const clientId = p.split(/\s/)[0] ?? '';
+    const name = p.match(/displayText:\s*(.+)/)?.[1]?.trim() || '(unnamed app)';
+    const scopes: string[] = [];
+    const sIdx = p.indexOf('scopes:');
+    if (sIdx >= 0) {
+      for (const line of p.slice(sIdx + 7).split('\n')) {
+        const t = line.trim();
+        if (!t) continue;
+        // Stop at the next field (e.g. "anonymous:") — but a scope URL like "https://…" is
+        // NOT a field, so only break on "word:" that is not followed by "//".
+        if (/^[a-zA-Z][a-zA-Z]+:(?!\/\/)/.test(t)) break;
+        scopes.push(t);
+      }
+    }
+    apps.push({ clientId, name, scopes, mailAccess: scopes.some((x) => MAIL_SCOPE.test(x)) });
+  }
+  return apps;
+}
+
+export function parseAccountCheck(blob: string): AccountCheckReport {
+  const mechanisms: AccountMechanism[] = [];
+  const mech = (name: string, blockName: string, present: (b: string) => { review: boolean; summary: string; detail: string[] }) => {
+    const b = blockOf(blob, blockName);
+    if (!b || b.timedOut || (b.exit !== 0 && b.exit !== 60)) {
+      mechanisms.push({ name, status: 'failed', summary: b?.timedOut ? 'did not complete (timed out)' : 'did not complete', detail: [] });
+      return;
+    }
+    const r = present(b.body);
+    mechanisms.push({ name, status: r.review ? 'review' : 'clean', summary: r.summary, detail: r.detail });
+  };
+
+  mech('Filters', 'filters', (b) => {
+    const n = countShow(b);
+    // When filters exist, GAM prints each below the header; keep those lines as detail.
+    const detail = n > 0 ? b.split('\n').map((l) => l.trim()).filter((l) => l && !/^User:/.test(l)) : [];
+    return { review: n > 0, summary: n === 0 ? 'none' : `${n} filter${n === 1 ? '' : 's'} — review what they do`, detail };
+  });
+  mech('Forwarding', 'forward', (b) => {
+    const on = /Forward Enabled:\s*True/i.test(b);
+    const to = b.match(/Forwarding Address:\s*(\S+)/i)?.[1];
+    return { review: on, summary: on ? `ON${to ? ` → ${to}` : ''}` : 'off', detail: [] };
+  });
+  mech('Forwarding addresses', 'forwardingaddresses', (b) => {
+    const n = countShow(b);
+    const detail = b.split('\n').map((l) => l.trim()).filter((l) => l && !/^User:/.test(l));
+    return { review: n > 0, summary: n === 0 ? 'none' : `${n}`, detail };
+  });
+  mech('Delegates', 'delegates', (b) => {
+    const n = countShow(b);
+    const detail = b.split('\n').map((l) => l.trim()).filter((l) => l && !/^User:/.test(l));
+    return { review: n > 0, summary: n === 0 ? 'none' : `${n} — someone else can open this mailbox`, detail };
+  });
+  mech('App passwords', 'asps', (b) => {
+    const n = countShow(b);
+    return { review: n > 0, summary: n === 0 ? 'none' : `${n}`, detail: [] };
+  });
+
+  // OAuth apps: listed in full, those with mail access flagged for review.
+  const tb = blockOf(blob, 'tokens');
+  let apps: OAuthApp[] = [];
+  if (!tb || tb.timedOut || (tb.exit !== 0 && tb.exit !== 60)) {
+    mechanisms.push({ name: 'Connected apps (OAuth)', status: 'failed', summary: 'did not complete', detail: [] });
+  } else {
+    apps = parseOAuthApps(tb.body);
+    const mail = apps.filter((a) => a.mailAccess);
+    mechanisms.push({
+      name: 'Connected apps (OAuth)',
+      status: mail.length ? 'review' : 'clean',
+      summary: mail.length
+        ? `${mail.length} of ${apps.length} app${apps.length === 1 ? '' : 's'} can read or change mail — confirm you recognise them`
+        : `${apps.length} app${apps.length === 1 ? '' : 's'}, none with mail access`,
+      detail: mail.map((a) => `${a.name} — ${a.scopes.filter((s) => MAIL_SCOPE.test(s)).join(', ')}`)
+    });
+  }
+
+  const verdict: AccountCheckReport['verdict'] = mechanisms.some((m) => m.status === 'failed')
+    ? 'inconclusive'
+    : mechanisms.some((m) => m.status === 'review')
+      ? 'review'
+      : 'clean';
+  return { verdict, mechanisms, apps };
+}

@@ -4,8 +4,10 @@ import Link from 'next/link';
 import { currentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { getSettings, destructiveAllowed } from '@/lib/settings';
-import { assertSweepSafe, protectiveSuffix, UnsafeQueryError } from '@/lib/gam';
-import { ShieldAlert, CheckCircle2, XCircle } from 'lucide-react';
+import { assertSweepSafe, protectiveSuffix, UnsafeQueryError, parseAccountCheck, LOG_DIR } from '@/lib/gam';
+import { ShieldAlert, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { Live } from './Live';
 import { HOST_CMD } from '@/lib/runtime';
 import { readProgress } from '@/lib/progress';
@@ -214,6 +216,13 @@ export default async function JobPage({
   const incomplete = job.status === 'INCOMPLETE';
   const domain = s.domains[job.domainKey] ?? job.domainKey;
 
+  // For an account check, parse the raw GAM output into a per-mechanism breakdown so the
+  // page can say plainly "clean" vs "review these", with the detail behind each line.
+  const acReport =
+    job.kind === 'ACCOUNT_CHECK' && (job.status === 'DONE' || job.status === 'INCOMPLETE')
+      ? parseAccountCheck(await readFile(path.join(LOG_DIR, `${job.id}.out`), 'utf8').catch(() => ''))
+      : null;
+
   return (
     <div className="max-w-5xl space-y-5">
       <header className="flex flex-wrap items-start justify-between gap-3">
@@ -257,6 +266,72 @@ export default async function JobPage({
           }
         >
           {job.summary}
+        </div>
+      )}
+
+      {acReport && (
+        <div className="card space-y-3">
+          <div className="flex items-center gap-2">
+            {acReport.verdict === 'clean' ? (
+              <><CheckCircle2 size={20} style={{ color: 'rgb(var(--success))' }} /><strong className="text-base">Clean</strong>
+              <span className="text-sm text-text-muted">— nothing that persists past a password reset</span></>
+            ) : acReport.verdict === 'review' ? (
+              <><AlertTriangle size={20} style={{ color: 'rgb(var(--warning))' }} /><strong className="text-base">Review</strong>
+              <span className="text-sm text-text-muted">— these are legitimate for most people; confirm you recognise them</span></>
+            ) : (
+              <><XCircle size={20} style={{ color: 'rgb(var(--danger))' }} /><strong className="text-base">Inconclusive</strong>
+              <span className="text-sm text-text-muted">— a check did not complete, so this is not a clean result</span></>
+            )}
+          </div>
+
+          <table className="w-full border-collapse text-sm">
+            <tbody>
+              {acReport.mechanisms.map((m) => (
+                <tr key={m.name} className="border-b last:border-0 align-top">
+                  <td className="td w-6">
+                    {m.status === 'clean' ? <CheckCircle2 size={15} style={{ color: 'rgb(var(--success))' }} />
+                      : m.status === 'review' ? <AlertTriangle size={15} style={{ color: 'rgb(var(--warning))' }} />
+                      : <XCircle size={15} style={{ color: 'rgb(var(--danger))' }} />}
+                  </td>
+                  <td className="td w-52 font-medium">{m.name}</td>
+                  <td className="td">
+                    <span className={m.status === 'clean' ? 'text-text-muted' : ''}>{m.summary}</span>
+                    {m.detail.length > 0 && (
+                      <ul className="mt-0.5 space-y-0.5 text-xs text-text-muted">
+                        {m.detail.map((d, i) => <li key={i} className="mono">· {d}</li>)}
+                      </ul>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {acReport.apps.length > 0 && (
+            <details className="text-sm">
+              <summary className="cursor-pointer text-xs text-text-muted">
+                All {acReport.apps.length} connected app{acReport.apps.length === 1 ? '' : 's'} (OAuth)
+              </summary>
+              <table className="mt-2 w-full border-collapse text-xs">
+                <thead><tr className="border-b text-left"><th className="th">App</th><th className="th">Mail?</th><th className="th">Scopes</th></tr></thead>
+                <tbody>
+                  {acReport.apps.map((a, i) => (
+                    <tr key={i} className="border-b align-top">
+                      <td className="td">{a.name}</td>
+                      <td className="td">{a.mailAccess ? <span className="pill pill-high">mail</span> : <span className="text-text-muted">—</span>}</td>
+                      <td className="td mono text-text-muted">{a.scopes.join('  ')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+          )}
+
+          <p className="text-xs text-text-muted">
+            Read-only enumeration of filters, forwarding, delegates, app passwords and OAuth grants — the
+            places a takeover hides, because they survive a password reset. A native mail app (Apple Mail,
+            Outlook) legitimately holds a mail scope, so &ldquo;review&rdquo; means <em>look</em>, not <em>alarm</em>.
+          </p>
         </div>
       )}
 
