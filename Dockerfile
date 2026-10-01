@@ -30,10 +30,23 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
       openssl ca-certificates curl xz-utils tini util-linux \
     && rm -rf /var/lib/apt/lists/*
 
-# GAM7, installed to /opt/gam7. -l: binaries only — the project and authorisation are
-# created per district by `gam-setup`, and live in the warden user's home (a volume).
-RUN bash -c 'bash <(curl -s -S -L https://git.io/gam-install) -l -d /opt' \
-    && test -x /opt/gam7/gam
+# GAM7, installed to /opt/gam7 — binaries only. The project and authorisation are created
+# per district by `gam-setup` and live in the warden user's home (a volume).
+#
+# Pinned and downloaded directly rather than through GAM's install script: that script needs
+# Python to read GitHub's release list and calls GitHub's API unauthenticated, which shared CI
+# runners regularly exhaust. A pinned version also makes every image reproducible. Bump
+# GAM_VERSION to upgrade (releases: github.com/GAM-team/GAM/releases). glibc2.35 is the
+# build for this Debian base (glibc 2.36).
+ARG GAM_VERSION=7.48.14
+ARG TARGETARCH
+RUN set -eux; \
+    case "${TARGETARCH:-amd64}" in amd64) arch=x86_64 ;; arm64) arch=arm64 ;; *) echo "unsupported arch ${TARGETARCH}"; exit 1 ;; esac; \
+    curl -fsSL -o /tmp/gam.tar.xz \
+      "https://github.com/GAM-team/GAM/releases/download/v${GAM_VERSION}/gam-${GAM_VERSION}-linux-${arch}-glibc2.35.tar.xz"; \
+    tar -xJf /tmp/gam.tar.xz -C /opt; \
+    rm /tmp/gam.tar.xz; \
+    test -x /opt/gam7/gam
 
 # Optional AI triage. Signs in with a Claude subscription at run time; no key in the image.
 RUN npm install -g @anthropic-ai/claude-code --no-audit --no-fund && npm cache clean --force
