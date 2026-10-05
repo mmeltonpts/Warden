@@ -61,15 +61,19 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Scan the published image by digest. ignore-unfixed so a vuln with no patch yet does not
-      # block a release; a FIXABLE critical does, which is the signal worth stopping for.
+      # Scan the published image by digest. Trivy is installed from its pinned GitHub release
+      # rather than via the marketplace action, whose transitive setup-trivy pin has broken
+      # version resolution. ignore-unfixed so a vuln with no patch yet does not block a release;
+      # a FIXABLE critical does, which is the signal worth stopping for. The docker login above
+      # leaves credentials in ~/.docker/config.json, which trivy uses to pull the image.
       - name: Scan the published image
-        uses: aquasecurity/trivy-action@v0.28.0
-        with:
-          image-ref: ghcr.io/${{ github.repository_owner }}/warden@${{ steps.build.outputs.digest }}
-          severity: CRITICAL
-          ignore-unfixed: true
-          exit-code: '1'
+        env:
+          TRIVY_VERSION: 0.75.0
+          IMAGE: ghcr.io/${{ github.repository_owner }}/warden@${{ steps.build.outputs.digest }}
+        run: |
+          curl -sfL -o trivy.tar.gz "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          tar xzf trivy.tar.gz trivy
+          ./trivy image --severity CRITICAL --ignore-unfixed --exit-code 1 "$IMAGE"
 
       # Keyless (Sigstore) signature over the digest, so an adopter can verify the image is the
       # one this repo's release built: `cosign verify ghcr.io/<owner>/warden@<digest>
