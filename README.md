@@ -271,6 +271,8 @@ Versions below 1.0 are marked pre-release.
 
 ## Day to day
 
+- **Responding to an incident:** see the [incident runbook](docs/RUNBOOK.md) — the order of
+  operations for a reported phish, a compromised account, and a risky sign-in.
 - **Upgrade:** `cd Warden && git pull && sudo ./deploy/install.sh`. Your answers, secrets,
   data and settings are kept. Migrations are forward-only, so **snapshot first** outside an
   incident: `sudo -u postgres pg_dump warden > warden-preupgrade.sql` (and a VM snapshot if you

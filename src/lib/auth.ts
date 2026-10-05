@@ -7,6 +7,7 @@
  */
 import { cookies, headers } from 'next/headers';
 import bcrypt from 'bcryptjs';
+import { randomBytes } from 'node:crypto';
 import { prisma } from './db';
 
 export const SESSION_COOKIE = 'warden_session';
@@ -46,7 +47,12 @@ export async function verifyLogin(email: string, password: string) {
 
 export async function createSession(userId: string) {
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 86400_000);
-  const s = await prisma.wardenSession.create({ data: { userId, expiresAt } });
+  // 256 bits of CSPRNG, not the schema's cuid() default: a session id is a bearer token, and
+  // cuid is designed for collision-resistant ordering, not unguessability. The id stays opaque
+  // and DB-backed, so a forged value simply finds no row — which is why it needs no separate
+  // signature (SESSION_SECRET remains for future signed artifacts).
+  const id = randomBytes(32).toString('base64url');
+  const s = await prisma.wardenSession.create({ data: { id, userId, expiresAt } });
   const jar = await cookies();
   jar.set(SESSION_COOKIE, s.id, {
     httpOnly: true,
