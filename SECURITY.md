@@ -20,6 +20,12 @@ file district data, credentials, or live indicators in an issue or PR.
   a typed-mailbox confirmation, and are audited. Nothing is automatic.
 - **GAM is invoked with argument arrays, never a shell**, so OS command injection is not
   reachable; sweep/hunt queries are additionally constrained (`assertSweepSafe`, `verifyQuery`).
+- **Settings that name an executable are constrained.** `gamPath` is rejected before spawn if
+  it is relative or under a temporary/user-writable location, and `ai.command`'s program is
+  allow-listed to the Claude CLI (its flags stay configurable). So a stolen or malicious ADMIN
+  session cannot turn a setting into host code execution.
+- **Login is rate-limited.** Five failed attempts for an account lock it for 15 minutes, and
+  failed, locked-out and successful sign-ins are all written to the audit log.
 - **Outbound HTTP is allow-listed:** CrowdStrike calls accept only CrowdStrike API hosts;
   RDAP and threat feeds are fixed endpoints.
 - **No district data in the repo.** Domains, addresses, IP ranges, hostnames and people's

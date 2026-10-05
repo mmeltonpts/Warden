@@ -15,6 +15,7 @@ const PAGE = 300;
  */
 const CONSEQUENTIAL = [
   'sweep',
+  'sweep_selected',
   'sweep_refused',
   'verify',
   'scope',
@@ -23,6 +24,16 @@ const CONSEQUENTIAL = [
   'settings_update',
   'job_cancelled',
   'alert_mirror_FAILED',
+  // Privilege and access changes, and failed sign-ins — the rows an incident reviewer needs
+  // first. Granting ADMIN or resetting a password must not hide under "Everything".
+  'user_create',
+  'user_role',
+  'user_password_reset',
+  'user_reinvite',
+  'user_disable',
+  'user_enable',
+  'login_failed',
+  'login_locked',
   // Every email Warden sends to a person: the staff "was this you?" verification and its
   // outcome, and the handbook notice sent to a student. Here so they show in the default
   // view, not only under "all".
