@@ -31,7 +31,9 @@ export function ConfirmAction({
   blurb,
   reversible,
   danger,
-  confirmText
+  confirmText,
+  extraFields,
+  requireReason
 }: {
   action: (formData: FormData) => void | Promise<void>;
   mailbox: string;
@@ -42,10 +44,17 @@ export function ConfirmAction({
   danger: boolean;
   /** What must be typed to enable the action — the mailbox. */
   confirmText: string;
+  /** Extra hidden fields to post, e.g. the kind/target of a persistence item to remove. */
+  extraFields?: Record<string, string>;
+  /** Require a non-empty reason, posted as `reason`, before the action can fire. */
+  requireReason?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState('');
-  const match = typed.trim().toLowerCase() === confirmText.trim().toLowerCase();
+  const [reason, setReason] = useState('');
+  const match =
+    typed.trim().toLowerCase() === confirmText.trim().toLowerCase() &&
+    (!requireReason || reason.trim().length > 0);
 
   return (
     <>
@@ -80,6 +89,23 @@ export function ConfirmAction({
               <input type="hidden" name="action" value={actionKey} />
               <input type="hidden" name="mailbox" value={mailbox} />
               <input type="hidden" name="confirm" value={typed} />
+              {extraFields &&
+                Object.entries(extraFields).map(([k, v]) => (
+                  <input key={k} type="hidden" name={k} value={v} />
+                ))}
+              {requireReason && (
+                <label className="block text-sm">
+                  <span className="mb-1 block">Reason / ticket</span>
+                  <input
+                    name="reason"
+                    autoComplete="off"
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    className="w-full rounded border bg-bg-elevated px-3 py-2 text-sm"
+                    placeholder="why this is being removed"
+                  />
+                </label>
+              )}
               <label className="block text-sm">
                 <span className="mb-1 block">
                   Type <span className="mono font-semibold">{confirmText}</span> to confirm

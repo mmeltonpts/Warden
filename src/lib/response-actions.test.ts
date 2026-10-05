@@ -1,5 +1,29 @@
 import { describe, it, expect } from 'vitest';
-import { gamArgsForAction, isResponseAction, passwordFromOutput, RESPONSE_ACTIONS } from './response-actions';
+import { gamArgsForAction, isResponseAction, passwordFromOutput, RESPONSE_ACTIONS, gamArgsForRemove, isRemoveKind } from './response-actions';
+
+describe('gamArgsForRemove (kill persistence)', () => {
+  const m = 'victim@example.org';
+  it('builds the delete/forward commands for each kind', () => {
+    expect(gamArgsForRemove('filter', m, 'ANe1Bmg-abc_123')).toEqual(['user', m, 'delete', 'filter', 'ANe1Bmg-abc_123']);
+    expect(gamArgsForRemove('forwardingaddress', m, 'Attacker@Evil.test')).toEqual(['user', m, 'delete', 'forwardingaddress', 'attacker@evil.test']);
+    expect(gamArgsForRemove('delegate', m, 'spy@evil.test')).toEqual(['user', m, 'delete', 'delegate', 'spy@evil.test']);
+    expect(gamArgsForRemove('forward_off', m, '')).toEqual(['user', m, 'forward', 'off']);
+  });
+
+  it('rejects a bad mailbox, a bad filter id, or a non-email target', () => {
+    expect(gamArgsForRemove('filter', 'not-an-email', 'abc')).toBeNull();
+    expect(gamArgsForRemove('filter', m, 'has space')).toBeNull();
+    expect(gamArgsForRemove('forwardingaddress', m, 'not-an-email')).toBeNull();
+    expect(gamArgsForRemove('delegate', m, '')).toBeNull();
+  });
+
+  it('isRemoveKind guards the kind', () => {
+    expect(isRemoveKind('filter')).toBe(true);
+    expect(isRemoveKind('forward_off')).toBe(true);
+    expect(isRemoveKind('suspend')).toBe(false);
+    expect(isRemoveKind(null)).toBe(false);
+  });
+});
 
 describe('response action argument builder', () => {
   const m = 'jane.doe@example.org';

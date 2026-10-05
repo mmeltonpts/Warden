@@ -7,7 +7,7 @@
  */
 import { execFile } from 'node:child_process';
 import { errText } from './errors';
-import { gamArgsForAction, passwordFromOutput, type ResponseAction } from './response-actions';
+import { gamArgsForAction, gamArgsForRemove, passwordFromOutput, type ResponseAction, type RemoveKind } from './response-actions';
 
 function run(gamPath: string, args: string[], timeoutMs = 60_000): Promise<{ code: number; out: string }> {
   return new Promise((resolve) => {
@@ -39,6 +39,27 @@ export async function runUserAction(gamPath: string, mailbox: string, action: Re
     return { ok: true, detail: 'new password generated; change forced at next sign-in', password: pw ?? undefined };
   }
   return { ok: true, detail: r.out.split('\n')[0]?.slice(0, 200) || 'done' };
+}
+
+/**
+ * Remove one piece of persistence (a filter, forwarding address, delegate, or forwarding
+ * itself) from a mailbox. GAM exits 0 on success and 50 when the entity no longer exists —
+ * which, for a remove, is the desired end state, so it is reported as done, not failed.
+ */
+export async function runRemoveAction(
+  gamPath: string,
+  mailbox: string,
+  kind: RemoveKind,
+  target: string
+): Promise<ActionResult> {
+  const args = gamArgsForRemove(kind, mailbox, target);
+  if (!args) return { ok: false, detail: 'invalid target or mailbox' };
+  const r = await run(gamPath, args);
+  if (r.code === 0) return { ok: true, detail: r.out.split('\n').slice(-1)[0]?.slice(0, 200) || 'removed' };
+  if (r.code === 50 || /not\s*found|does not exist|invalid delegate/i.test(r.out)) {
+    return { ok: true, detail: 'already gone (nothing to remove)' };
+  }
+  return { ok: false, detail: r.out.split('\n').slice(0, 3).join(' ').slice(0, 300) || `gam exit ${r.code}` };
 }
 
 /** Whether the account is currently suspended, so the panel offers Suspend vs Un-suspend. */

@@ -349,7 +349,13 @@ export const ACCOUNT_CHECKS = [
   { name: 'forwardingaddresses', args: (u: string) => ['user', u, 'show', 'forwardingaddresses'] },
   { name: 'delegates', args: (u: string) => ['user', u, 'show', 'delegates'] },
   { name: 'asps', args: (u: string) => ['user', u, 'show', 'asps'] },
-  { name: 'tokens', args: (u: string) => ['user', u, 'show', 'tokens'] }
+  { name: 'tokens', args: (u: string) => ['user', u, 'show', 'tokens'] },
+  // The `print` variants return CSV with the ids/addresses needed to REMOVE each item (the
+  // `show` variants above drive the human-readable count/verdict). Kept separate so the proven
+  // parseAccountCheck summary is untouched; parseRemovableItems reads these.
+  { name: 'printfilters', args: (u: string) => ['user', u, 'print', 'filters'] },
+  { name: 'printforwardingaddresses', args: (u: string) => ['user', u, 'print', 'forwardingaddresses'] },
+  { name: 'printdelegates', args: (u: string) => ['user', u, 'print', 'delegates'] }
 ] as const;
 
 export function flagsFromAccountCheck(text: string): string[] {
@@ -687,4 +693,77 @@ export function parseAccountCheck(blob: string): AccountCheckReport {
       ? 'review'
       : 'clean';
   return { verdict, mechanisms, apps };
+}
+
+/**
+ * The persistence a check found, as REMOVABLE items with the exact id/address a one-click
+ * remove needs — parsed from the `print` blocks added to ACCOUNT_CHECKS. Kept separate from
+ * parseAccountCheck (which produces the human verdict) so that proven code is untouched.
+ */
+export interface RemovableItem {
+  kind: 'filter' | 'forwardingaddress' | 'delegate' | 'forward_off';
+  /** filter id, or the email, or '' for forward_off. */
+  target: string;
+  label: string;
+}
+
+function splitCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let q = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (q) {
+      if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (ch === '"') q = false;
+      else cur += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === ',') { out.push(cur); cur = ''; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
+export function parseRemovableItems(blob: string): RemovableItem[] {
+  const items: RemovableItem[] = [];
+  const rows = (blockName: string): Array<Record<string, string>> => {
+    const b = blockOf(blob, blockName);
+    if (!b || b.timedOut || (b.exit !== 0 && b.exit !== 60)) return [];
+    const lines = b.body.split('\n').filter((l) => l.trim() && !/^Getting /.test(l));
+    if (lines.length < 2) return [];
+    const header = splitCsvLine(lines[0]).map((h) => h.trim());
+    const out: Array<Record<string, string>> = [];
+    for (let i = 1; i < lines.length; i++) {
+      const c = splitCsvLine(lines[i]);
+      if (c.length < 2) continue;
+      const row: Record<string, string> = {};
+      header.forEach((h, idx) => (row[h] = (c[idx] ?? '').trim()));
+      out.push(row);
+    }
+    return out;
+  };
+
+  for (const r of rows('printfilters')) {
+    const id = r['id'];
+    if (!id) continue;
+    const crit = ['from', 'subject', 'query'].map((k) => r[k]).filter(Boolean).join(' ');
+    const act = ['forward', 'archive', 'important', 'label', 'markread', 'star', 'neverspam', 'trash']
+      .map((k) => r[k]).filter(Boolean).join(', ');
+    items.push({ kind: 'filter', target: id, label: `${crit || '(any)'} → ${act || '(none)'}`.replace(/\s+/g, ' ').slice(0, 180) });
+  }
+  for (const r of rows('printforwardingaddresses')) {
+    const email = r['forwardingEmail'];
+    if (email) items.push({ kind: 'forwardingaddress', target: email, label: `${email}${r['verificationStatus'] ? ` (${r['verificationStatus']})` : ''}` });
+  }
+  for (const r of rows('printdelegates')) {
+    const email = r['delegateAddress'];
+    if (email) items.push({ kind: 'delegate', target: email, label: `${email}${r['delegationStatus'] ? ` (${r['delegationStatus']})` : ''}` });
+  }
+  const fwd = blockOf(blob, 'forward');
+  if (fwd && /Forward Enabled:\s*True/i.test(fwd.body)) {
+    const to = fwd.body.match(/Forwarding Address:\s*(\S+)/i)?.[1];
+    items.push({ kind: 'forward_off', target: '', label: `Auto-forwarding is ON${to ? ` → ${to}` : ''}` });
+  }
+  return items;
 }

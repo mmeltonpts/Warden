@@ -91,3 +91,38 @@ export function gamArgsForAction(action: ResponseAction, mailbox: string): strin
 export function passwordFromOutput(out: string): string | null {
   return out.match(/\bPassword:\s*([^\s,]+)/)?.[1] ?? null;
 }
+
+/**
+ * Removing the persistence an account check FINDS — the filter, forwarding, forwarding address
+ * or delegate that survives a password reset. Previously the console flagged these and told a
+ * human to go delete them by hand in GAM; this closes the detect→respond gap. Each is the
+ * narrowest possible GAM mutation: one named filter, one address, one delegate, or forwarding
+ * off — so there is no query to over-reach. RESPONDER/ADMIN, typed-confirm and audit are
+ * enforced by the caller, exactly like the other account actions.
+ */
+export type RemoveKind = 'filter' | 'forwardingaddress' | 'delegate' | 'forward_off';
+
+export function isRemoveKind(x: unknown): x is RemoveKind {
+  return x === 'filter' || x === 'forwardingaddress' || x === 'delegate' || x === 'forward_off';
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const FILTER_ID_RE = /^[A-Za-z0-9_-]+$/;
+
+export function gamArgsForRemove(kind: RemoveKind, mailbox: string, target: string): string[] | null {
+  const m = String(mailbox ?? '').trim().toLowerCase();
+  if (!EMAIL_RE.test(m)) return null;
+  const t = String(target ?? '').trim();
+  switch (kind) {
+    case 'filter':
+      return FILTER_ID_RE.test(t) ? ['user', m, 'delete', 'filter', t] : null;
+    case 'forwardingaddress':
+      return EMAIL_RE.test(t.toLowerCase()) ? ['user', m, 'delete', 'forwardingaddress', t.toLowerCase()] : null;
+    case 'delegate':
+      return EMAIL_RE.test(t.toLowerCase()) ? ['user', m, 'delete', 'delegate', t.toLowerCase()] : null;
+    case 'forward_off':
+      return ['user', m, 'forward', 'off'];
+    default:
+      return null;
+  }
+}

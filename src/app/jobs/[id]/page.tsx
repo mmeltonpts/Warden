@@ -5,12 +5,12 @@ import Link from 'next/link';
 import { currentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { getSettings, destructiveAllowed } from '@/lib/settings';
-import { assertSweepSafe, protectiveSuffix, UnsafeQueryError, parseAccountCheck, LOG_DIR } from '@/lib/gam';
+import { assertSweepSafe, protectiveSuffix, UnsafeQueryError, parseAccountCheck, parseRemovableItems, LOG_DIR } from '@/lib/gam';
 import { ShieldAlert, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { RESPONSE_ACTIONS, isResponseAction, type ResponseAction } from '@/lib/response-actions';
-import { runUserAction, userSuspended } from '@/lib/user-actions';
+import { RESPONSE_ACTIONS, isResponseAction, isRemoveKind, type ResponseAction, type RemoveKind } from '@/lib/response-actions';
+import { runUserAction, runRemoveAction, userSuspended } from '@/lib/user-actions';
 import { holdOnce, takeOnce } from '@/lib/onetime';
 import { ConfirmAction } from '@/components/ConfirmAction';
 import { Live } from './Live';
@@ -50,6 +50,13 @@ const ERRORS: Record<string, string> = {
     'preview gate again, with the current counts in front of you.',
   nopick: 'Nothing was done. No messages were selected.',
   reason: 'Nothing was done. A reason is required so the audit records why these were removed.'
+};
+
+const REMOVE_LABEL: Record<RemoveKind, string> = {
+  filter: 'Filter',
+  forwardingaddress: 'Forwarding address',
+  delegate: 'Delegate',
+  forward_off: 'Forwarding'
 };
 
 export default async function JobPage({
@@ -310,6 +317,49 @@ export default async function JobPage({
     redirect(`/jobs/${id}?${params.toString()}`);
   }
 
+  /**
+   * Remove one piece of persistence the check found — a filter, forwarding address, delegate,
+   * or forwarding itself. Same gate as the other account actions (RESPONDER/ADMIN, typed-mailbox
+   * confirm) plus a required reason captured to the audit. The target (filter id / address) is
+   * passed from the rendered item, but the action is the narrowest possible GAM mutation and the
+   * mailbox is re-confirmed here, so a bad value just fails to build a command.
+   */
+  async function removePersistence(formData: FormData) {
+    'use server';
+    const u = await currentUser();
+    if (!u) redirect('/login');
+    if (u.role === 'ANALYST') redirect(`/jobs/${id}?error=respforbidden`);
+
+    const mailbox = String(formData.get('mailbox') ?? '').trim().toLowerCase();
+    const confirm = String(formData.get('confirm') ?? '').trim().toLowerCase();
+    const kind = String(formData.get('kind') ?? '');
+    const target = String(formData.get('target') ?? '');
+    const reason = String(formData.get('reason') ?? '').trim();
+    if (!isRemoveKind(kind)) redirect(`/jobs/${id}?error=badaction`);
+    if (!mailbox || confirm !== mailbox) redirect(`/jobs/${id}?error=respconfirm`);
+    if (!reason) redirect(`/jobs/${id}?error=reason`);
+
+    const result = await runRemoveAction(s.gamPath, mailbox, kind as RemoveKind, target);
+
+    await prisma.wardenAudit.create({
+      data: {
+        operator: u.email,
+        action: `remove_${kind}`,
+        target: mailbox,
+        detail:
+          `${result.ok ? 'removed' : 'FAILED'}: ${kind}${target ? ` ${target}` : ''}` +
+          `${result.ok ? '' : ` — ${result.detail}`} — reason: ${reason}`
+      }
+    }).catch(() => undefined);
+
+    const msg = result.ok
+      ? `${mailbox} — removed ${kind}${target ? ` ${target}` : ''}. Re-run the account check to confirm it is clean.`
+      : `Could not remove ${kind}: ${result.detail}`;
+    const params = new URLSearchParams({ respmsg: msg, respok: result.ok ? '1' : '0' });
+    revalidatePath(`/jobs/${id}`);
+    redirect(`/jobs/${id}?${params.toString()}`);
+  }
+
   // Account-check response panel data: the mailbox, and whether it is currently suspended.
   const acMailbox = job.kind === 'ACCOUNT_CHECK'
     ? (job.query || (() => { try { return JSON.parse(job.argsJson ?? '{}').user as string; } catch { return ''; } })())
@@ -332,10 +382,14 @@ export default async function JobPage({
 
   // For an account check, parse the raw GAM output into a per-mechanism breakdown so the
   // page can say plainly "clean" vs "review these", with the detail behind each line.
-  const acReport =
+  const acBlob =
     job.kind === 'ACCOUNT_CHECK' && (job.status === 'DONE' || job.status === 'INCOMPLETE')
-      ? parseAccountCheck(await readFile(path.join(LOG_DIR, `${job.id}.out`), 'utf8').catch(() => ''))
-      : null;
+      ? await readFile(path.join(LOG_DIR, `${job.id}.out`), 'utf8').catch(() => '')
+      : '';
+  const acReport = acBlob ? parseAccountCheck(acBlob) : null;
+  // The filters/forwarding/delegates a check found, as removable items. Responder/admin only;
+  // an analyst sees the findings but not the remove controls.
+  const removableItems = acBlob && acMailbox && user.role !== 'ANALYST' ? parseRemovableItems(acBlob) : [];
 
   return (
     <div className="max-w-5xl space-y-5">
@@ -515,6 +569,51 @@ export default async function JobPage({
               </p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Remove the persistence the check found — the detect→respond gap this closes. Filters,
+          forwarding, delegates and active forwarding, each a one-click remove with a typed
+          confirm + reason. Responder/admin only (removableItems is empty otherwise). */}
+      {removableItems.length > 0 && (
+        <div className="card space-y-3" style={{ borderColor: 'rgb(var(--danger) / 0.35)' }}>
+          <div>
+            <h2 className="flex items-center gap-2 text-sm font-semibold">
+              <ShieldAlert size={16} style={{ color: 'rgb(var(--danger))' }} /> Remove persistence
+            </h2>
+            <p className="mt-1 text-xs text-text-muted">
+              The filters, forwarding and delegates on <span className="mono">{acMailbox}</span> — the access
+              that survives a password reset. Remove the hostile ones; each asks you to type the mailbox and a
+              reason, and is audited. Leave the legitimate ones (a native mail app, an assistant&rsquo;s
+              delegation) in place. Re-run the account check afterwards to confirm it is clean.
+            </p>
+          </div>
+          <ul className="space-y-2">
+            {removableItems.map((it, i) => (
+              <li key={i} className="flex flex-wrap items-center justify-between gap-2 rounded border p-2 text-xs">
+                <span className="min-w-0 break-words">
+                  <span className="pill pill-muted mr-2">{REMOVE_LABEL[it.kind]}</span>
+                  <span className="mono">{it.label}</span>
+                </span>
+                <ConfirmAction
+                  action={removePersistence}
+                  mailbox={acMailbox}
+                  actionKey={it.kind}
+                  label={`Remove ${REMOVE_LABEL[it.kind].toLowerCase()}`}
+                  blurb={
+                    it.kind === 'forward_off'
+                      ? `This turns OFF auto-forwarding on ${acMailbox}.`
+                      : `This removes the ${REMOVE_LABEL[it.kind].toLowerCase()} "${it.label}" from ${acMailbox}.`
+                  }
+                  reversible="A legitimate one can be re-created by the user afterwards."
+                  danger
+                  confirmText={acMailbox}
+                  extraFields={{ kind: it.kind, target: it.target }}
+                  requireReason
+                />
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

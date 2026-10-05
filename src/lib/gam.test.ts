@@ -10,6 +10,7 @@ import {
   trashIdsArgs,
   labelIdsArgs,
   gamPathReason,
+  parseRemovableItems,
   type GamSettings
 } from './gam';
 
@@ -228,5 +229,43 @@ describe('gamPathReason (GAM binary path guard)', () => {
     expect(gamPathReason('/home/admin/gam')).toMatch(/temporary or user-writable/);
     expect(gamPathReason('/opt/gam7/gam x')).toMatch(/whitespace/);
     expect(gamPathReason('')).toMatch(/not set/);
+  });
+});
+
+describe('parseRemovableItems (kill persistence)', () => {
+  const blob = [
+    '===== printfilters (exit 0) =====',
+    'User,id,from,subject,query,hasAttachment,forward,archive,important,label,markread,star,neverspam,trash',
+    'victim@example.org,ANe1BmgEVIL123,,,query from:attacker@evil.test,,,,,,,,,trash',
+    'victim@example.org,ANe1BmgGOOD456,from newsletter@example.org,,,,,archive,,label News,,,,',
+    '===== printforwardingaddresses (exit 0) =====',
+    'User,forwardingEmail,verificationStatus',
+    'victim@example.org,attacker@evil.test,accepted',
+    '===== printdelegates (exit 0) =====',
+    'User,delegateAddress,delegationStatus',
+    'victim@example.org,spy@evil.test,ACCEPTED',
+    '===== forward (exit 0) =====',
+    'User: victim@example.org, Forward Enabled: True, Forwarding Address: attacker@evil.test, Action: KEEP'
+  ].join('\n');
+
+  it('extracts each removable item with the id/address a remove needs', () => {
+    const items = parseRemovableItems(blob);
+    const filters = items.filter((i) => i.kind === 'filter').map((i) => i.target);
+    expect(filters).toEqual(['ANe1BmgEVIL123', 'ANe1BmgGOOD456']);
+    expect(items.find((i) => i.kind === 'forwardingaddress')?.target).toBe('attacker@evil.test');
+    expect(items.find((i) => i.kind === 'delegate')?.target).toBe('spy@evil.test');
+    expect(items.some((i) => i.kind === 'forward_off')).toBe(true);
+    // the evil filter's label carries its criteria/action so an operator can tell them apart
+    expect(items.find((i) => i.target === 'ANe1BmgEVIL123')?.label).toMatch(/attacker@evil\.test/);
+  });
+
+  it('returns nothing when forwarding is off and there are no filters/delegates', () => {
+    const clean = [
+      '===== printfilters (exit 0) =====', 'User,id,from,subject,query',
+      '===== printforwardingaddresses (exit 0) =====', 'User,forwardingEmail,verificationStatus',
+      '===== printdelegates (exit 0) =====', 'User,delegateAddress,delegationStatus',
+      '===== forward (exit 0) =====', 'User: victim@example.org, Forward Enabled: False'
+    ].join('\n');
+    expect(parseRemovableItems(clean)).toEqual([]);
   });
 });
