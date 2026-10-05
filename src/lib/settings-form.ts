@@ -29,6 +29,7 @@ const PREFERRED = [
   'Sign-in risk',
   'Quarantine',
   'Hunt',
+  'OAuth grants',
   'Threat feeds',
   'Data retention',
   'KnowBe4',
@@ -46,7 +47,7 @@ export const SECTIONS: string[] = (() => {
 })();
 
 /** Integrations a district may not have. The wizard offers "Skip" on these. */
-export const OPTIONAL_SECTIONS = new Set(['Threat feeds', 'KnowBe4', 'CrowdStrike', 'Claude', 'Verify', 'Student notices']);
+export const OPTIONAL_SECTIONS = new Set(['Threat feeds', 'KnowBe4', 'CrowdStrike', 'Claude', 'Verify', 'Student notices', 'OAuth grants']);
 
 export const BLURB: Record<string, string> = {
   General: 'How people reach this console.',
@@ -73,6 +74,8 @@ export const BLURB: Record<string, string> = {
     'Public indicator feeds. These are URL-heavy and Gmail cannot match a domain inside a message body, so they are matched locally against payload hosts already extracted from reported mail — never turned into Gmail searches. Kept apart from your own confirmed indicators.',
   Hunt:
     'Retroactive search for indicators learned after the fact. Read-only — it never deletes. A sender indicator is only searched near the date it was first seen, because a compromised account is the real person either side of that window.',
+  'OAuth grants':
+    'Optional, read-only. Watches the Admin token log for new apps granted access that can read or change mail — the token-takeover persistence a password reset does not revoke and a mailbox sweep cannot see. Default-deny by client ID: allow-list the mail clients your staff use once, and a grant to anything else is flagged.',
   CrowdStrike:
     'Optional, read-only. Endpoint detections from Falcon — the attacks mail filtering never sees, like a pasted PowerShell installing remote-access software.',
   KnowBe4:

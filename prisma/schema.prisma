@@ -292,6 +292,33 @@ model WardenScanRun {
   @@index([startedAt])
 }
 
+/// A NEW OAuth grant that can read or change mail, to an app not on the allow-list — the
+/// token-takeover persistence a password reset does not revoke and a mailbox sweep cannot
+/// see. One row per (mailbox, client, time). `fanOut` is how many mailboxes granted the same
+/// app in the window: a high count is an enterprise/ed-tech rollout, a count of one is the
+/// shape of a targeted takeover.
+model WardenGrantFlag {
+  id         String          @id @default(cuid())
+  mailbox    String
+  ts         DateTime
+  appName    String
+  clientId   String
+  clientType String?
+  scopes     String // JSON string[] — the mail-capable scopes
+  ip         String?
+  fanOut     Int             @default(1)
+  reasons    String // JSON string[], shown verbatim
+  state      WardenRiskState @default(NEW)
+  notes      String?
+  reviewedBy String?
+  reviewedAt DateTime?
+  createdAt  DateTime        @default(now())
+
+  @@unique([mailbox, clientId, ts])
+  @@index([state, ts])
+  @@index([mailbox])
+}
+
 // ─── staff phish reports ─────────────────────────────────────────────────────
 //
 // 504 reports from 190 staff over 180 days went to a decommissioned PhishER tenant.

@@ -364,6 +364,68 @@ export function riskDigest(
   return { subject, text, html };
 }
 
+/**
+ * New mail-capable OAuth grants the token-log watch flagged. Grouped by app (client id),
+ * because one enterprise rollout across 200 mailboxes is one thing to recognise, not 200
+ * lines — and single-mailbox grants (the targeted-takeover shape) are listed first and
+ * marked critical.
+ */
+export function grantDigest(
+  flags: Array<{ mailbox: string; ts: Date; appName: string; clientId: string; scopes: string[]; fanOut: number }>,
+  baseUrl: string
+): Message {
+  const byClient = new Map<string, typeof flags>();
+  for (const f of flags) {
+    const g = byClient.get(f.clientId) ?? [];
+    g.push(f);
+    byClient.set(f.clientId, g);
+  }
+  const groups = [...byClient.values()].sort((a, b) => a[0].fanOut - b[0].fanOut);
+  const targeted = groups.filter((g) => g[0].fanOut === 1).length;
+
+  const subject =
+    groups.length === 1
+      ? `Warden: new mail-capable OAuth grant — ${groups[0][0].appName}`
+      : `Warden: ${groups.length} apps granted mail access (${flags.length} mailbox${flags.length === 1 ? '' : 'es'})`;
+
+  const { text, html } = render({
+    title: 'New OAuth grants that can read or change mail',
+    lede:
+      `${groups.length} app${groups.length === 1 ? '' : 's'} not on the allow-list were granted a Gmail scope` +
+      (targeted ? `, ${targeted} on a single mailbox — the shape of a targeted takeover.` : '.'),
+    blocks: [
+      {
+        items: groups.map((g) => {
+          const f = g[0];
+          const mbCount = new Set(g.map((x) => x.mailbox)).size;
+          return {
+            title: f.appName,
+            meta: [`client ${f.clientId}`, `${mbCount} mailbox${mbCount === 1 ? '' : 'es'} this run`, fmtTs(f.ts)]
+              .filter(Boolean)
+              .join('  ·  '),
+            detail:
+              `${f.scopes.join(', ')} — ` +
+              (f.fanOut === 1
+                ? 'this mailbox only; confirm the user recognises it'
+                : `${f.fanOut} mailboxes in the window; allow-list by client ID if recognised`),
+            severity: f.fanOut === 1 ? ('critical' as const) : ('high' as const)
+          };
+        })
+      },
+      {
+        note:
+          'A mail-capable OAuth grant is persistence a password reset does NOT revoke. To stop ' +
+          'a confirmed one, revoke the app for that mailbox (Admin console → the user → Security ' +
+          '→ Connected applications, or GAM). Allow-list the apps you recognise by client ID in ' +
+          'Settings → OAuth grants so they stop appearing.'
+      }
+    ],
+    cta: { label: 'Open OAuth grant queue', href: `${baseUrl}/grants` },
+    baseUrl
+  });
+  return { subject, text, html };
+}
+
 /** New staff phish reports found by an ingest run. */
 export function reportDigest(
   o: {

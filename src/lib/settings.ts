@@ -39,6 +39,7 @@ export interface WardenSettings extends GamSettings {
     falconMinutes: number;
     verifyMinutes: number;
     studentVpnMinutes: number;
+    oauthGrantsMinutes: number;
     retentionMinutes: number;
   };
   retention: {
@@ -102,6 +103,14 @@ export interface WardenSettings extends GamSettings {
     watchTools: string;
     bannedTools: string;
     approvedTools: string;
+  };
+  oauthWatch: {
+    enabled: boolean;
+    lookbackHours: number;
+    scanStudents: boolean;
+    notify: boolean;
+    allowClientIds: string[];
+    allowNames: string[];
   };
   alerts: {
     enabled: boolean;
@@ -179,6 +188,9 @@ export const DEFAULTS: WardenSettings = {
     // Routes new student VPN sign-ins to building admins. The queue is reviewed by a human,
     // so it does not need to be fast; hourly keeps the queue current without noise.
     studentVpnMinutes: 60,
+    // Watches the Admin OAuth token log for new mail-capable grants. Off unless oauthWatch
+    // is enabled; 60 min keeps it current — a grant is persistence, not a live-seconds race.
+    oauthGrantsMinutes: 60,
     // How often the PII retention prune runs. Daily is ample; it does nothing unless a
     // retention period below is set.
     retentionMinutes: 1440
@@ -221,6 +233,30 @@ export const DEFAULTS: WardenSettings = {
     bannedTools: 'ScreenConnect, ConnectWise',
     // Empty on purpose: approving a remote-access tool is a decision for the district.
     approvedTools: ''
+  },
+  oauthWatch: {
+    // Watches the Admin OAuth token log for NEW grants that can read or change mail. Off by
+    // default: the first scan surfaces every mail client staff already use, which the operator
+    // allow-lists once (by client ID) before this becomes quiet. It is the token-takeover
+    // detector the Sept/Oct incidents showed a mailbox sweep cannot provide.
+    enabled: false,
+    // How far back the first run looks; after that an internal cursor advances each run. Kept
+    // short so enabling it does not flag months of historical grants in one batch.
+    lookbackHours: 2,
+    // Staff only by default. Students authorize ed-tech apps constantly; include them only if
+    // you intend to triage that volume.
+    scanStudents: false,
+    notify: true,
+    // The TRUSTWORTHY allow-list: exact OAuth client IDs. An app can rename itself "Outlook",
+    // but it cannot forge another app's client ID. Add the ones you recognise (your mail
+    // clients, your own GAM service project) — the flag rows show the client ID to copy.
+    allowClientIds: [],
+    // A convenience allow-list by app-name substring (case-insensitive). Spoofable, so treat a
+    // name match as triage help, never proof. Seeded with common mail clients.
+    allowNames: [
+      'Apple', 'iOS', 'macOS', 'Mac OS', 'Thunderbird', 'Microsoft Outlook', 'Outlook',
+      'Mimestream', 'Spark', 'Mailspring', 'eM Client', 'Airmail'
+    ]
   },
   signinVerify: {
     // A "was this you?" email to staff after a risky VPN or foreign sign-in. Off until a
@@ -535,6 +571,19 @@ export const FIELDS = [
     help: 'Keep this low (2-5): the deletion check only means something within minutes of the email arriving. 0 disables.' },
   { section: 'Schedule', key: 'schedule.studentVpnMinutes', label: 'Queue student VPN sign-ins every (minutes)', type: 'number',
     help: 'The queue is reviewed by a human, so hourly is fine. 0 disables.' },
+  { section: 'Schedule', key: 'schedule.oauthGrantsMinutes', label: 'Check for new mail-capable OAuth grants every (minutes)', type: 'number',
+    help: 'A grant is persistence, not a live-seconds race, so hourly is plenty. 0 disables (so does turning the watch off below).' },
+  { section: 'OAuth grants', key: 'oauthWatch.enabled', label: 'Watch for new OAuth apps that can read or change mail', type: 'boolean',
+    help: 'Watches the Admin token log for grants carrying a Gmail scope — the token-takeover persistence a password reset does not revoke and a mailbox sweep cannot see. The first scan surfaces every mail client staff already use; allow-list those by client ID once and it goes quiet.' },
+  { section: 'OAuth grants', key: 'oauthWatch.scanStudents', label: 'Watch student mailboxes too', type: 'boolean',
+    help: 'Off by default. Students authorize ed-tech apps constantly; only turn this on if you intend to triage that volume.' },
+  { section: 'OAuth grants', key: 'oauthWatch.lookbackHours', label: 'First-scan lookback (hours)', type: 'number',
+    help: 'How far back the very first run looks. After that an internal cursor advances each run, so this only bounds the initial batch.' },
+  { section: 'OAuth grants', key: 'oauthWatch.allowClientIds', label: 'Allowed OAuth client IDs', type: 'list',
+    help: 'One per line. The trustworthy allow-list: a client ID cannot be forged. Add your mail clients and your own GAM service project here — each flag row shows the client ID to copy. A grant to any other app with mail access is flagged.' },
+  { section: 'OAuth grants', key: 'oauthWatch.allowNames', label: 'Allowed app names (substring)', type: 'list',
+    help: 'One per line, case-insensitive substring match. A convenience only — an app can rename itself, so a name match is triage help, never proof. Seeded with common mail clients.' },
+  { section: 'OAuth grants', key: 'oauthWatch.notify', label: 'Email when a new mail-capable grant is flagged', type: 'boolean' },
   { section: 'Verify', key: 'signinVerify.enabled', label: 'Email staff to verify risky sign-ins', type: 'boolean',
     help: 'After a sign-in Warden rates risky (a VPN or a foreign address Google flagged), email the person to ask whether it was them. A reply of NO, or the email being deleted or filtered within minutes, raises an alarm. A reply of YES lowers the score. Warden never suspends anyone — this puts a human in the loop. Needs a reply mailbox below and email notifications switched on.' },
   { section: 'Verify', key: 'signinVerify.replyMailbox', label: 'Reply mailbox', type: 'text',
