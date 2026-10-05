@@ -40,7 +40,7 @@ export async function run(opts: { days?: number } = {}) {
   // same question hundreds of times. A district shares very few networks.
   const residentialOrgs = (settings.alerts.residentialOrgs ?? '').split(',').filter(Boolean);
   const anonymizerOrgs = (settings.alerts.anonymizerOrgs ?? '').split(',').filter(Boolean);
-  const netMemo = new Map<string, { klass: NetVerdict['klass']; org: string | null } | null>();
+  const netMemo = new Map<string, { klass: NetVerdict['klass']; org: string | null; cc: string | null } | null>();
 
   const districtPrefix = (settings.districtIpPrefix ?? '').trim();
 
@@ -69,13 +69,14 @@ export async function run(opts: { days?: number } = {}) {
       owner = info
         ? {
             klass: classifyOrg(info, residentialOrgs, anonymizerOrgs).klass,
-            org: info.org || info.name || null
+            org: info.org || info.name || null,
+            cc: info.cc ?? null
           }
         : null;
       netMemo.set(key, owner);
     }
 
-    return { klass: owner?.klass ?? 'unknown', org: owner?.org ?? null, onDistrictNetwork };
+    return { klass: owner?.klass ?? 'unknown', org: owner?.org ?? null, cc: owner?.cc ?? null, onDistrictNetwork };
   }
 
   const run = await prisma.wardenScanRun.create({

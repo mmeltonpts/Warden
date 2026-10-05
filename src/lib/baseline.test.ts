@@ -395,3 +395,37 @@ describe('outside the home country — flagged on its own', () => {
     expect(assessRisk({ ...ev(''), geo: null }, b()).reasons.join(' ')).not.toMatch(/OUTSIDE/);
   });
 });
+
+describe('foreign fallback via RDAP country when Google omits the geo', () => {
+  const mailbox = 'user@example.edu';
+
+  it('flags foreign by RDAP country when Google provides no country', () => {
+    const r = assessRisk(
+      { mailbox, ts: at('2026-10-01T00:00:00Z'), eventName: 'login_success',
+        ip: '198.51.100.9', asn: '64500', geo: '', challenge: 'password', suspicious: false },
+      null, [], { klass: 'unknown', cc: 'NG' }
+    );
+    expect(r.reasons.some((x) => /OUTSIDE/.test(x))).toBe(true);
+    expect(r.reasons.some((x) => /registered in NG/.test(x))).toBe(true);
+    expect(r.score).toBeGreaterThanOrEqual(50);
+  });
+
+  it("prefers Google's own location over RDAP when it has a country", () => {
+    const r = assessRisk(
+      { mailbox, ts: at('2026-10-01T00:00:00Z'), eventName: 'login_success',
+        ip: '198.51.100.9', asn: '64500', geo: 'US-IN', challenge: 'password', suspicious: false },
+      null, [], { klass: 'unknown', cc: 'NG' }
+    );
+    expect(r.reasons.some((x) => /OUTSIDE/.test(x))).toBe(false);
+  });
+
+  it('does not flag when the RDAP country is a home country', () => {
+    const r = assessRisk(
+      { mailbox, ts: at('2026-10-01T00:00:00Z'), eventName: 'login_success',
+        ip: '198.51.100.9', asn: '64500', geo: '', challenge: 'password', suspicious: false },
+      null, [], { klass: 'unknown', cc: 'US' }
+    );
+    expect(r.reasons.some((x) => /OUTSIDE/.test(x))).toBe(false);
+  });
+
+});

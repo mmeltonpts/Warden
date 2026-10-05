@@ -148,6 +148,13 @@ export interface NetVerdict {
    * `districtIpPrefix`). Somebody physically on site, behind the district firewall.
    */
   onDistrictNetwork?: boolean;
+  /**
+   * ISO 3166 alpha-2 country of the netblock from RDAP. Used as the fallback for the "foreign"
+   * signal when Google's own location string omits the country (it often omits the subdivision,
+   * and sometimes the whole thing), so a genuinely foreign sign-in Google did not geo-tag is
+   * still caught.
+   */
+  cc?: string | null;
 }
 
 export const FLAG_THRESHOLD = 50;
@@ -217,12 +224,18 @@ export function assessRisk(
    * district-network or VPN rules below: a VPN exiting abroad is still worth a phone call,
    * and the reason text says it was a VPN so the call is a quick one.
    */
-  const country = event.geo?.split('-')[0]?.toUpperCase() || null;
-  const foreign = !!country && country.length === 2 && !homeCountries.includes(country);
+  const geoCountry = event.geo?.split('-')[0]?.toUpperCase() || null;
+  const rdapCc = net?.cc ? net.cc.toUpperCase() : null;
+  // Prefer Google's own location; fall back to the RDAP country of the IP when Google omits it,
+  // so a foreign sign-in Google did not geo-tag is not silently missed.
+  const usedRdap = !(geoCountry && geoCountry.length === 2) && !!(rdapCc && rdapCc.length === 2);
+  const country = (geoCountry && geoCountry.length === 2) ? geoCountry : (usedRdap ? rdapCc : null);
+  const foreign = !!country && !homeCountries.includes(country);
   if (foreign) {
     score += 50;
+    const where = usedRdap ? `IP registered in ${country}` : (event.geo ?? country);
     reasons.push(
-      `Sign-in located OUTSIDE ${homeCountries.join('/')} (${event.geo})` +
+      `Sign-in located OUTSIDE ${homeCountries.join('/')} (${where})` +
         (vpn ? ' — through a VPN, so possibly the exit node rather than the person' : '')
     );
   }
