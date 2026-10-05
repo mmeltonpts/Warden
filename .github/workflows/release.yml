@@ -13,6 +13,7 @@ on:
 permissions:
   contents: write
   packages: write
+  id-token: write # keyless image signing (cosign / Sigstore)
 
 jobs:
   test:
@@ -27,6 +28,8 @@ jobs:
       - run: npx prisma generate
       - run: npx vitest run
       - run: npx tsc --noEmit
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=critical
 
   image:
     needs: test
@@ -47,7 +50,8 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest
-      - uses: docker/build-push-action@v6
+      - id: build
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true
@@ -57,11 +61,43 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Scan the published image by digest. ignore-unfixed so a vuln with no patch yet does not
+      # block a release; a FIXABLE critical does, which is the signal worth stopping for.
+      - name: Scan the published image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/warden@${{ steps.build.outputs.digest }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+      # Keyless (Sigstore) signature over the digest, so an adopter can verify the image is the
+      # one this repo's release built: `cosign verify ghcr.io/<owner>/warden@<digest>
+      # --certificate-identity-regexp '.*' --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign the image
+        run: cosign sign --yes "ghcr.io/${{ github.repository_owner }}/warden@${{ steps.build.outputs.digest }}"
+
+      # Software bill of materials, attached to the GitHub Release below.
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ghcr.io/${{ github.repository_owner }}/warden@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: warden-sbom.spdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: warden-sbom.spdx.json
+
   release:
     needs: image
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: sbom
       - name: Create the GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -88,4 +124,5 @@ jobs:
 
           See the README for the full walkthrough.
           EOF
-          gh release create "$TAG" --title "Warden ${TAG}" --notes-file notes.md --generate-notes $PRE
+          gh release create "$TAG" --title "Warden ${TAG}" --notes-file notes.md --generate-notes $PRE \
+            warden-sbom.spdx.json

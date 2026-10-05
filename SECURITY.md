@@ -33,8 +33,13 @@ file district data, credentials, or live indicators in an issue or PR.
   and invented names.
 
 ## Dependency / CVE hygiene
-- `npm audit` is run before releases; Dependabot (`.github/dependabot.yml`) opens weekly PRs
-  for npm, Docker base images, and GitHub Actions.
+- **CI gate:** every push runs `npm audit --omit=dev --audit-level=critical`, so a critical
+  advisory in a production dependency fails the build. Dependabot (`.github/dependabot.yml`)
+  opens weekly PRs for npm, Docker base images, and GitHub Actions.
+- **Release provenance:** each release scans the published image with Trivy (a fixable critical
+  blocks the release), signs it keyless with cosign/Sigstore over its digest, and attaches an
+  SPDX SBOM to the GitHub Release. Verify a pulled image with:
+  `cosign verify ghcr.io/<owner>/warden@<digest> --certificate-oidc-issuer https://token.actions.githubusercontent.com --certificate-identity-regexp 'https://github.com/<owner>/Warden/.*'`
 - **Production runtime** dependencies are kept current; `npm prune --omit=dev` removes
   build/test tooling from the deployed host and image, so dev-only advisories (test runner,
   bundler) are not present in the running app. The Prisma CLI is kept as a production

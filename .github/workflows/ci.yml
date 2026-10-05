@@ -23,6 +23,11 @@ jobs:
       - run: npx tsc --noEmit
       - name: Shell scripts parse
         run: for f in deploy/*.sh docker/*.sh; do bash -n "$f"; done
+      # A real gate, not the manual pre-release audit SECURITY.md used to rely on. Critical-only
+      # so the accepted build-tooling advisories (documented in SECURITY.md) do not block, but a
+      # critical advisory in a production dependency fails the build.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=critical
 
   # Builds the image exactly as a release would, without publishing it, so a broken
   # Dockerfile is found on main rather than on release day.
