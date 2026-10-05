@@ -41,6 +41,7 @@ export interface WardenSettings extends GamSettings {
     studentVpnMinutes: number;
     oauthGrantsMinutes: number;
     forwardWatchMinutes: number;
+    exfilWatchMinutes: number;
     retentionMinutes: number;
   };
   retention: {
@@ -116,6 +117,14 @@ export interface WardenSettings extends GamSettings {
   forwardWatch: {
     enabled: boolean;
     scanStudents: boolean;
+    notify: boolean;
+  };
+  exfilWatch: {
+    enabled: boolean;
+    windowHours: number;
+    maxMessages: number;
+    maxExternal: number;
+    maxMailboxes: number;
     notify: boolean;
   };
   alerts: {
@@ -200,6 +209,9 @@ export const DEFAULTS: WardenSettings = {
     // Tenant-wide forwarding/delegate audit. Heavy (one GAM pass over every mailbox), so it
     // runs daily by default and only when forwardWatch is enabled.
     forwardWatchMinutes: 1440,
+    // Checks the sent mail of already-flagged mailboxes for a blast. Cheap (only a handful of
+    // mailboxes), so it can run often; off unless exfilWatch is enabled.
+    exfilWatchMinutes: 30,
     // How often the PII retention prune runs. Daily is ample; it does nothing unless a
     // retention period below is set.
     retentionMinutes: 1440
@@ -275,6 +287,22 @@ export const DEFAULTS: WardenSettings = {
     enabled: false,
     // Staff only by default. Students add ~6,000 mailboxes to an already heavy pass.
     scanStudents: false,
+    notify: true
+  },
+  exfilWatch: {
+    // Checks the SENT mail of already-flagged mailboxes (open sign-in risk, new mail-capable
+    // OAuth grant, new external forward) for a blast — a flagged account now sending in bulk is
+    // the active-exfil/BEC shape. Cheap because it only looks at a handful of mailboxes; the
+    // finding lands in the /risk queue. Off by default.
+    enabled: false,
+    // How far back each check looks at sent mail.
+    windowHours: 6,
+    // Sent-message count in the window that counts as a blast.
+    maxMessages: 50,
+    // Distinct external recipients in the window that counts as a blast.
+    maxExternal: 25,
+    // Safety cap on how many suspect mailboxes one run will probe.
+    maxMailboxes: 50,
     notify: true
   },
   signinVerify: {
@@ -610,6 +638,16 @@ export const FIELDS = [
   { section: 'Forwarding watch', key: 'forwardWatch.scanStudents', label: 'Include student mailboxes', type: 'boolean',
     help: 'Off by default — students add ~6,000 mailboxes to an already heavy pass.' },
   { section: 'Forwarding watch', key: 'forwardWatch.notify', label: 'Email when a new external forward or delegate appears', type: 'boolean' },
+  { section: 'Schedule', key: 'schedule.exfilWatchMinutes', label: 'Check flagged mailboxes for mass-mail every (minutes)', type: 'number',
+    help: 'Cheap — only looks at already-flagged mailboxes — so it can run often. 0 disables (so does turning the watch off).' },
+  { section: 'Mass-mail watch', key: 'exfilWatch.enabled', label: 'Check flagged mailboxes for a sending blast', type: 'boolean',
+    help: 'When a mailbox is already flagged (sign-in risk, a new mail-capable OAuth grant, or a new external forward), check its sent mail for a blast — a flagged account now sending in bulk is the active exfil/BEC shape. The finding is raised as a high-severity sign-in risk flag so responders act in one place.' },
+  { section: 'Mass-mail watch', key: 'exfilWatch.windowHours', label: 'Look back over (hours)', type: 'number' },
+  { section: 'Mass-mail watch', key: 'exfilWatch.maxMessages', label: 'Flag at this many sent messages in the window', type: 'number' },
+  { section: 'Mass-mail watch', key: 'exfilWatch.maxExternal', label: 'Flag at this many distinct external recipients', type: 'number' },
+  { section: 'Mass-mail watch', key: 'exfilWatch.maxMailboxes', label: 'Most mailboxes to probe per run', type: 'number',
+    help: 'A safety cap so one run never probes more than this many flagged mailboxes.' },
+  { section: 'Mass-mail watch', key: 'exfilWatch.notify', label: 'Email when a blast is flagged', type: 'boolean' },
   { section: 'Verify', key: 'signinVerify.enabled', label: 'Email staff to verify risky sign-ins', type: 'boolean',
     help: 'After a sign-in Warden rates risky (a VPN or a foreign address Google flagged), email the person to ask whether it was them. A reply of NO, or the email being deleted or filtered within minutes, raises an alarm. A reply of YES lowers the score. Warden never suspends anyone — this puts a human in the loop. Needs a reply mailbox below and email notifications switched on.' },
   { section: 'Verify', key: 'signinVerify.replyMailbox', label: 'Reply mailbox', type: 'text',
