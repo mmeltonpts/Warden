@@ -18,6 +18,7 @@ const CONSEQUENTIAL = [
   'verify',
   'scope',
   'account_check',
+  'account_check_bulk',
   'settings_update',
   'job_cancelled',
   'alert_mirror_FAILED',

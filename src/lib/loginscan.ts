@@ -183,6 +183,49 @@ export interface ScanResult {
   flagsRaised: number;
 }
 
+export interface ScoredFlag {
+  ts: Date;
+  score: number;
+  reasons: string[];
+  ip?: string | null;
+  asn?: string | null;
+  geo?: string | null;
+  challenge?: string | null;
+  suspicious?: boolean;
+}
+
+/**
+ * Collapse a mailbox's flagged sign-ins so that repeated hits from the SAME network in one
+ * scan become a single flag. A phone that re-authenticates several times a minute against
+ * one new Wi-Fi or VPN exit produces several events with an identical risk signature; left
+ * alone they become several identical rows in the queue and several identical lines in the
+ * notification email. This is the same "one fact, not many" idea as the VPN-triple rule.
+ *
+ * Grouping is by network (the /24 or /48 prefix, falling back to the raw IP). The kept flag
+ * is the worst-scoring one in the group — so a suspicious sign-in is never hidden behind a
+ * benign one — and its reasons gain a line stating how many sign-ins it represents. Separate
+ * networks are never merged, so two genuinely different flags for one person still show.
+ */
+export function collapseByNetwork(flags: ScoredFlag[]): ScoredFlag[] {
+  const groups = new Map<string, ScoredFlag[]>();
+  for (const f of flags) {
+    const key = ipPrefix(f.ip) ?? f.ip ?? 'unknown';
+    const g = groups.get(key);
+    if (g) g.push(f);
+    else groups.set(key, [f]);
+  }
+  const out: ScoredFlag[] = [];
+  for (const g of groups.values()) {
+    if (g.length === 1) { out.push(g[0]); continue; }
+    const top = g.reduce((a, b) => (b.score > a.score ? b : a));
+    out.push({
+      ...top,
+      reasons: [...top.reasons, `${g.length} sign-ins from this network in this scan — collapsed to one flag`]
+    });
+  }
+  return out.sort((a, b) => b.score - a.score || a.ts.getTime() - b.ts.getTime());
+}
+
 export async function runLoginScan(
   deps: ScanDeps,
   domains: string | string[]
@@ -216,6 +259,7 @@ export async function runLoginScan(
     const prior = history.filter((h) => !windowKeys.has(`${h.ts.toISOString()}|${h.eventName}`));
     const priorBaseline = prior.length ? buildBaseline(mailbox, prior) : await deps.loadBaseline(mailbox);
 
+    const flaggedThisMailbox: ScoredFlag[] = [];
     for (const e of windowEvents) {
       // Best-effort. RDAP being slow or down must degrade the score's precision, never
       // fail the scan — the ASN fallback still catches real hosting.
@@ -229,19 +273,23 @@ export async function runLoginScan(
         deps.homeCountries
       );
       if (flag) {
-        const created = await deps.raiseFlag({
-          mailbox,
-          ts: e.ts,
-          score,
-          reasons,
-          ip: e.ip,
-          asn: e.asn,
-          geo: e.geo,
-          challenge: e.challenge,
-          suspicious: !!e.suspicious
+        flaggedThisMailbox.push({
+          ts: e.ts, score, reasons,
+          ip: e.ip, asn: e.asn, geo: e.geo, challenge: e.challenge, suspicious: !!e.suspicious
         });
-        if (created) flagsRaised++;
       }
+    }
+
+    // A burst of sign-ins from one network is one fact, not many. A phone re-authing four
+    // times in a minute against the same new Wi-Fi/VPN exit produced four identical flags
+    // (same score, same reasons) that filled the queue and the notification email. Collapse
+    // them to one per network, keeping the worst and noting the repeat count.
+    for (const f of collapseByNetwork(flaggedThisMailbox)) {
+      const created = await deps.raiseFlag({
+        mailbox, ts: f.ts, score: f.score, reasons: f.reasons,
+        ip: f.ip, asn: f.asn, geo: f.geo, challenge: f.challenge, suspicious: !!f.suspicious
+      });
+      if (created) flagsRaised++;
     }
 
     // Now fold the window in and persist the updated normal.

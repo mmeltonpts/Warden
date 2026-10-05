@@ -145,6 +145,54 @@ export default async function RiskPage({
   }
 
   /**
+   * Investigate everything in the current view at once: queue a read-only account check for
+   * every DISTINCT mailbox shown (a mailbox with four flags gets one check, not four), mark
+   * their NEW flags Investigating, and open the Jobs page to watch them run. Scoped to the
+   * current state + audience tabs and recomputed here, never trusted from the form. Capped so
+   * one click cannot queue hundreds of GAM scans; the riskiest mailboxes go first.
+   */
+  async function investigateAll(formData: FormData) {
+    'use server';
+    const u = await currentUser();
+    if (!u) redirect('/login');
+    const st = String(formData.get('state') ?? 'NEW');
+    const w = String(formData.get('who') ?? 'all');
+    const cfg = await getSettings(prisma);
+    const stuSfx = `@${cfg.domains.students.toLowerCase()}`;
+    const stateW = st === 'ALL' ? {} : { state: st as never };
+    const audW =
+      w === 'students' ? { mailbox: { endsWith: `@${cfg.domains.students}` } }
+      : w === 'staff' ? { mailbox: { endsWith: `@${cfg.domains.staff}` } }
+      : {};
+    const viewFlags = await prisma.wardenRiskFlag.findMany({
+      where: { ...stateW, ...audW },
+      select: { mailbox: true, score: true }
+    });
+    const byMb = new Map<string, number>();
+    for (const f of viewFlags) byMb.set(f.mailbox, Math.max(byMb.get(f.mailbox) ?? 0, f.score));
+    const MAX = 50;
+    const mailboxes = [...byMb.entries()].sort((a, b) => b[1] - a[1]).slice(0, MAX).map(([m]) => m);
+    if (!mailboxes.length) redirect(`/risk?state=${st}&who=${w}`);
+
+    await prisma.wardenRiskFlag.updateMany({
+      where: { ...stateW, ...audW, state: 'NEW', mailbox: { in: mailboxes } },
+      data: { state: 'INVESTIGATING', reviewedBy: u.email, reviewedAt: new Date() }
+    });
+    let firstJob = '';
+    for (const mb of mailboxes) {
+      const domainKey = mb.toLowerCase().endsWith(stuSfx) ? 'students' : 'staff';
+      const job = await prisma.wardenJob.create({
+        data: { kind: 'ACCOUNT_CHECK', operatorId: u.id, domainKey, argsJson: JSON.stringify({ user: mb }), query: mb }
+      });
+      if (!firstJob) firstJob = job.id;
+    }
+    await prisma.wardenAudit.create({
+      data: { operator: u.email, action: 'account_check_bulk', target: `${mailboxes.length} accounts`, detail: `risk view state=${st} who=${w}${byMb.size > MAX ? ` (capped from ${byMb.size})` : ''}` }
+    }).catch(() => undefined);
+    redirect('/jobs');
+  }
+
+  /**
    * Clear the student VPN noise in one pass.
    *
    * Scoped to exactly the rows the operator is looking at — the current state tab AND the
@@ -508,6 +556,23 @@ export default async function RiskPage({
           )}
         </div>
       ) : (
+        <>
+        {(() => {
+          const accounts = new Set(flags.map((f) => f.mailbox)).size;
+          return (
+            <form action={investigateAll} className="mb-2 flex flex-wrap items-center gap-2">
+              <input type="hidden" name="state" value={state} />
+              <input type="hidden" name="who" value={who} />
+              <PendingButton className="btn btn-primary text-xs" pending="Queuing…">
+                Investigate all {accounts} account{accounts === 1 ? '' : 's'} in this view
+              </PendingButton>
+              <span className="text-xs text-text-muted">
+                Queues a read-only account check per mailbox (deduplicated) and marks them Investigating.
+                {accounts > 50 && ' Capped at the 50 highest-scoring.'}
+              </span>
+            </form>
+          );
+        })()}
         <div className="overflow-x-auto rounded border">
           <table className="w-full border-collapse bg-bg-surface">
             <thead className="border-b bg-bg-elevated">
@@ -581,6 +646,7 @@ export default async function RiskPage({
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       <p className="text-xs text-text-muted">
