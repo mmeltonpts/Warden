@@ -9,7 +9,7 @@
 import { PrismaClient } from '@prisma/client';
 import { getSettings, notifyRecipients } from '../src/lib/settings';
 import { falconClient } from '../src/lib/crowdstrike';
-import { toEdrRow, severityRank, userAtAlert, usualUser, type FalconAlertRaw, type EdrRow } from '../src/lib/falcon-alerts';
+import { toEdrRow, severityRank, isRmmAbuse, userAtAlert, usualUser, type FalconAlertRaw, type EdrRow } from '../src/lib/falcon-alerts';
 import { sendMail, render } from '../src/lib/mailer';
 import { errText } from '../src/lib/errors';
 import { refreshToolSnapshot } from '../src/lib/remote-tools-sync';
@@ -100,9 +100,15 @@ export async function run() {
       if (f) iocHit = `${f.host} (${f.source})`;
     }
 
-    // Below the floor is dropped — unless it touches a known indicator or is an OverWatch
-    // lead. Those are kept whatever Falcon called their severity.
-    if (severityRank(row.severityName) < minRank && !iocHit && row.product !== 'overwatch') {
+    // Below the floor is dropped — unless it touches a known indicator, is an OverWatch lead,
+    // or is a remote-monitoring/application-abuse detection. Those are kept whatever Falcon
+    // called their severity, because a remote-access tool firing is this district's whole point.
+    if (
+      severityRank(row.severityName) < minRank &&
+      !iocHit &&
+      row.product !== 'overwatch' &&
+      !isRmmAbuse(row)
+    ) {
       skipped++;
       continue;
     }

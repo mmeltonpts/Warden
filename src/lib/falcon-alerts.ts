@@ -45,6 +45,20 @@ export function severityRank(name: string | null | undefined): number {
 }
 
 /**
+ * Falcon's remote-monitoring-and-management / application-abuse detections — e.g.
+ * "ApplicationAbusePreventionRemoteMonitoringAndManagement". Falcon raises these at
+ * Informational severity, so a Low floor drops them, but a remote-access tool running where it
+ * should not be is the exact signal this district watches (see crowdstrike.watchTools and the
+ * remote-tool inventory). So they are kept whatever their severity, the same way OverWatch
+ * leads and known-IOC hits already are. Matched on the detection name/description, which is the
+ * stable signal; it does not depend on any one tool being in the watch list.
+ */
+const RMM_ABUSE = /application[\s_-]*abuse|remote[\s_-]*monitoring[\s_-]*and[\s_-]*management|\bRMM\b/i;
+export function isRmmAbuse(row: { name?: string | null; displayName?: string | null; description?: string | null }): boolean {
+  return RMM_ABUSE.test(`${row.name ?? ''} ${row.displayName ?? ''} ${row.description ?? ''}`);
+}
+
+/**
  * Map Falcon's user field to a mailbox.
  *
  * Seen in practice: "jane.doe@example.org", "jane.doe", "Margaret.Lastnam" (truncated at

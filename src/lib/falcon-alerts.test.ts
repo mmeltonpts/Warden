@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toEdrRow, mapMailbox, extractHosts, severityRank } from './falcon-alerts';
+import { toEdrRow, mapMailbox, extractHosts, severityRank, isRmmAbuse } from './falcon-alerts';
 
 const D = { staff: 'example.org', students: 'student.example.org' };
 
@@ -122,5 +122,20 @@ describe('usualUser', () => {
       { user: 'a.one@example.org', at: new Date() },
       { user: 'b.two@example.org', at: new Date() }
     ], D)).toBeNull();
+  });
+});
+
+describe('isRmmAbuse — keep remote-monitoring/application-abuse detections below the floor', () => {
+  it('matches Falcon RMM / application-abuse detection names', () => {
+    expect(isRmmAbuse({ name: 'ApplicationAbusePreventionRemoteMonitoringAndManagement' })).toBe(true);
+    expect(isRmmAbuse({ displayName: 'Remote Monitoring and Management tool detected' })).toBe(true);
+    expect(isRmmAbuse({ description: 'Application Abuse prevention policy triggered' })).toBe(true);
+    expect(isRmmAbuse({ name: 'RMM activity observed' })).toBe(true);
+  });
+
+  it('does not match unrelated detections', () => {
+    expect(isRmmAbuse({ name: 'Use of stale user account' })).toBe(false);
+    expect(isRmmAbuse({ name: 'CustomIOCHashHigh' })).toBe(false);
+    expect(isRmmAbuse({ name: null, displayName: null, description: null })).toBe(false);
   });
 });
