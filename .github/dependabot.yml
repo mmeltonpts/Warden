@@ -1,0 +1,21 @@
+version: 2
+updates:
+  # Weekly dependency + CVE checks. Grouped so a review is one PR, not a dozen.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      production:
+        dependency-type: production
+      dev:
+        dependency-type: development
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
