@@ -8,7 +8,7 @@ const f = (p: Partial<ScoredFlag>): ScoredFlag => ({
 
 describe('collapseByNetwork', () => {
   it('collapses repeated sign-ins from the same network into one flag', () => {
-    // staff.member: four sign-ins, same /24, same minute — the screenshot case.
+    // A staff phone: four sign-ins, same /24, same minute, identical risk signature.
     const out = collapseByNetwork([
       f({ ts: new Date('2026-10-05T00:18:30Z') }),
       f({ ts: new Date('2026-10-05T00:19:01Z') }),

@@ -168,8 +168,8 @@ export async function run(opts: { days?: number } = {}) {
         async raiseFlag(f) {
           try {
             // Don't pile onto a network already flagged and awaiting review for this
-            // mailbox. Once staff.member is flagged for a new Texas network and that flag
-            // is still NEW/INVESTIGATING, her next sign-ins from the same network are the
+            // mailbox. Once a mailbox is flagged for a new network and that flag is still
+            // NEW/INVESTIGATING, its next sign-ins from the same network are the
             // same fact — re-raising them just re-sends the notification every scan. Once a
             // human resolves it (benign or confirmed), the queue is clear and a genuinely
             // new sign-in can flag again.
