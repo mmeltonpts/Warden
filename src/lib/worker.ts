@@ -19,7 +19,8 @@ import { errText } from './errors';
 import {
   runScope, runSweep, runVerify, parseSweepResult, assertSweepSafe,
   protectiveSuffix, ACCOUNT_CHECKS, flagsFromAccountCheck, parseAccountCheck,
-  UnsafeQueryError, DestructiveDisabledError, LOG_DIR, labelSwept, sweptMailboxes
+  UnsafeQueryError, DestructiveDisabledError, LOG_DIR, labelSwept, sweptMailboxes,
+  runTrashSelected, type TrashItem
 } from './gam';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -128,9 +129,63 @@ async function doScope(job: { id: string; domainKey: string; query: string | nul
   };
 }
 
+/**
+ * Hand-picked containment: label + trash an exact set of messages the operator ticked on a
+ * scope result. No query, no domain walk — GAM acts on named ids in named mailboxes, so this
+ * is both faster and narrower than a query sweep. Audited (with the operator's reason), and a
+ * mailbox whose trash did not exit cleanly is surfaced as a failure, never counted as done.
+ */
+async function doTrashSelected(
+  job: { id: string; domainKey: string; operatorId: string },
+  items: TrashItem[],
+  reason: string
+) {
+  const s = await getSettings(prisma);
+  const res = await runTrashSelected(s, items);
+  const op = await prisma.wardenUser.findUnique({ where: { id: job.operatorId } });
+  const completed = res.failures.length === 0;
+
+  await prisma.wardenAudit.create({
+    data: {
+      operator: op?.email ?? job.operatorId,
+      action: 'sweep_selected',
+      target: s.domains[job.domainKey],
+      resultCount: res.trashed,
+      detail:
+        `hand-picked: trashed ${res.trashed}/${res.requested} selected message(s) across ${res.mailboxes} mailbox(es)` +
+        (res.failures.length ? ` — FAILURES: ${res.failures.join('; ')}` : '') +
+        (reason ? ` — reason: ${reason}` : '')
+    }
+  }).catch(() => undefined);
+
+  const labelNote = (s.sweepWarningLabel ?? '').trim() ? ', marked with the warning label' : '';
+  return {
+    exitCode: completed ? 0 : 1,
+    timedOut: false,
+    completed,
+    logPath: '',
+    summary: completed
+      ? `trashed ${res.trashed} hand-picked message(s) across ${res.mailboxes} mailbox(es)${labelNote}${reason ? ` — ${reason}` : ''}`
+      : `PARTIAL — ${res.trashed}/${res.requested} trashed; FAILURES: ${res.failures.join('; ')}. Re-run for the mailboxes that failed.`
+  };
+}
+
 async function doSweep(job: {
-  id: string; domainKey: string; query: string | null; operatorId: string;
+  id: string; domainKey: string; query: string | null; operatorId: string; argsJson: string | null;
 }) {
+  // Hand-picked mode: the operator ticked exact messages on a scope result, so the job carries
+  // an id list instead of a query. Trash those by (mailbox, id) — explicit ids are the narrowest
+  // possible target, so there is no query for assertSweepSafe to vet. Any other SWEEP is a
+  // normal query sweep and falls through unchanged.
+  if (job.argsJson) {
+    try {
+      const parsed = JSON.parse(job.argsJson);
+      if (Array.isArray(parsed?.items) && parsed.items.length) {
+        return await doTrashSelected(job, parsed.items as TrashItem[], typeof parsed.reason === 'string' ? parsed.reason : '');
+      }
+    } catch { /* malformed argsJson: fall through to the query path, which will refuse an empty query */ }
+  }
+
   const s = await getSettings(prisma);
   const q = job.query ?? '';
   assertSweepSafe(q, s); // throws UnsafeQueryError -> REFUSED, never reaches GAM

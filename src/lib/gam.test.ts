@@ -7,6 +7,8 @@ import {
   gamCompleted,
   assertSweepSafe,
   reachedEnd,
+  trashIdsArgs,
+  labelIdsArgs,
   type GamSettings
 } from './gam';
 
@@ -180,5 +182,32 @@ describe('sweptMailboxes', () => {
   });
   it('returns nothing for a sweep that matched nothing', () => {
     expect(sweptMailboxes('User: a@b.org, Messages: 0, No Messages matched')).toEqual([]);
+  });
+});
+
+describe('trashIdsArgs / labelIdsArgs (hand-picked containment)', () => {
+  it('builds a trash-by-ids command for a valid mailbox and ids', () => {
+    expect(trashIdsArgs('maria@example.org', ['18ab', '19cd'])).toEqual([
+      'user', 'maria@example.org', 'trash', 'messages', 'ids', '18ab,19cd', 'doit'
+    ]);
+  });
+
+  it('lower-cases the mailbox and drops ids with illegal characters', () => {
+    expect(trashIdsArgs('Maria@Example.ORG', ['ok_1', 'bad id', 'a,b', 'fine-2'])).toEqual([
+      'user', 'maria@example.org', 'trash', 'messages', 'ids', 'ok_1,fine-2', 'doit'
+    ]);
+  });
+
+  it('returns null for a bad mailbox or when no id survives validation', () => {
+    expect(trashIdsArgs('not-an-email', ['18ab'])).toBeNull();
+    expect(trashIdsArgs('maria@example.org', [])).toBeNull();
+    expect(trashIdsArgs('maria@example.org', ['', ' ', 'a b'])).toBeNull();
+  });
+
+  it('builds a label-by-ids command and requires a non-empty label', () => {
+    expect(labelIdsArgs('maria@example.org', ['18ab'], '⚠ PHISHING')).toEqual([
+      'user', 'maria@example.org', 'modify', 'messages', 'ids', '18ab', 'addlabel', '⚠ PHISHING', 'doit'
+    ]);
+    expect(labelIdsArgs('maria@example.org', ['18ab'], '   ')).toBeNull();
   });
 });

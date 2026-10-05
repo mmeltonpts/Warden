@@ -47,7 +47,9 @@ const ERRORS: Record<string, string> = {
     'completion; the result appears here when it finishes.',
   nosweepretry:
     'A sweep is never re-run from a button. Open the scope it came from and pass the ' +
-    'preview gate again, with the current counts in front of you.'
+    'preview gate again, with the current counts in front of you.',
+  nopick: 'Nothing was done. No messages were selected.',
+  reason: 'Nothing was done. A reason is required so the audit records why these were removed.'
 };
 
 export default async function JobPage({
@@ -79,6 +81,22 @@ export default async function JobPage({
   const mailboxes = await prisma.wardenFinding
     .findMany({ where: { jobId: id }, select: { mailbox: true }, distinct: ['mailbox'] })
     .then((r) => r.length);
+
+  // The hand-picked containment list: every finding with a real mailbox and Gmail id, so the
+  // operator can tick exact messages instead of crafting a query. Capped — a selection of
+  // hundreds is a query's job, not a checkbox's.
+  const PICK_CAP = 500;
+  const pickable =
+    job.kind === 'SCOPE' && job.status === 'DONE' && stats._count > 0
+      ? await prisma.wardenFinding.findMany({
+          where: { jobId: id, msgId: { not: null }, mailbox: { not: null } },
+          select: { id: true, mailbox: true, sender: true, subject: true, dateHdr: true },
+          orderBy: [{ mailbox: 'asc' }, { dateHdr: 'desc' }],
+          take: PICK_CAP + 1
+        })
+      : [];
+  const pickableTruncated = pickable.length > PICK_CAP;
+  const pickRows = pickable.slice(0, PICK_CAP);
 
   // Who an ANALYST should call. /users is ADMIN-gated, so without this the role refusal
   // is a dead end at exactly the moment someone needs an answer.
@@ -138,6 +156,47 @@ export default async function JobPage({
     });
     revalidatePath('/jobs');
     redirect(`/jobs/${sweep.id}`);
+  }
+
+  /**
+   * Hand-picked containment. The operator ticked exact messages on this scope result; trash
+   * those by their (mailbox, Gmail id), labelled, via a SWEEP job carrying an id list instead
+   * of a query (see doSweep's argsJson branch). Explicit ids are the narrowest possible target,
+   * so there is no query to craft and nothing for assertSweepSafe to refuse — the thing that
+   * made a hand-typed sender-only query a dead end. The mailbox and id for each pick are read
+   * from the database here, never trusted from the form.
+   */
+  async function createTrashSelected(formData: FormData) {
+    'use server';
+    const u = await currentUser();
+    if (!u) redirect('/login');
+    if (u.role === 'ANALYST') redirect(`/jobs/${id}?error=role`);
+    if (process.env.WARDEN_ALLOW_DESTRUCTIVE !== '1') redirect(`/jobs/${id}`);
+    if (String(formData.get('confirm') ?? '').trim() !== 'SWEEP') redirect(`/jobs/${id}?error=confirm`);
+    const reason = String(formData.get('reason') ?? '').trim();
+    if (!reason) redirect(`/jobs/${id}?error=reason`);
+
+    const picked = formData.getAll('pick').map(String).filter(Boolean);
+    if (!picked.length) redirect(`/jobs/${id}?error=nopick`);
+
+    // Resolve the picks to (mailbox, id) from the database — only rows that belong to THIS
+    // scope and carry a real mailbox and Gmail id. The browser never decides what gets trashed.
+    const rows = await prisma.wardenFinding.findMany({
+      where: { id: { in: picked.slice(0, 500) }, jobId: id, msgId: { not: null }, mailbox: { not: null } },
+      select: { mailbox: true, msgId: true }
+    });
+    const items = rows.map((r) => ({ mailbox: r.mailbox as string, id: r.msgId as string }));
+    if (!items.length) redirect(`/jobs/${id}?error=nopick`);
+
+    const parent = await prisma.wardenJob.findUnique({ where: { id } });
+    const job = await prisma.wardenJob.create({
+      data: {
+        kind: 'SWEEP', operatorId: u.id, domainKey: parent?.domainKey ?? 'staff',
+        parentId: id, argsJson: JSON.stringify({ items, reason })
+      }
+    });
+    revalidatePath('/jobs');
+    redirect(`/jobs/${job.id}`);
   }
 
   /**
@@ -752,6 +811,63 @@ export default async function JobPage({
             sweep left behind.
           </p>
         </div>
+      )}
+
+      {/*
+        ── hand-picked containment ─────────────────────────────────────────
+        The complement to the query sweep: tick exact messages and they are labelled and
+        trashed by their Gmail id. No query to craft, so nothing for the safety rail to
+        refuse — a sender-only query getting bounced is the friction this removes. Same
+        DONE+findings gate and role/destructive gates as the sweep above.
+      */}
+      {job.kind === 'SCOPE' && job.status === 'DONE' && pickRows.length > 0 && !sweepBlocked && user.role !== 'ANALYST' && (
+        <form action={createTrashSelected} className="card space-y-3">
+          <h2 className="text-sm font-semibold">Pick exact messages to label &amp; Trash</h2>
+          <p className="text-xs text-text-muted">
+            Tick the messages to contain and they are labelled <span className="mono">{s.sweepWarningLabel || '(no label set)'}</span> and
+            moved to Trash by their exact Gmail id &mdash; recoverable, kept as evidence. This touches
+            only what you tick: no query, nothing to refuse, no other mailbox reached.
+          </p>
+          <div className="max-h-96 divide-y overflow-y-auto rounded border">
+            {pickRows.map((m) => (
+              <label key={m.id} className="flex cursor-pointer items-start gap-2 p-2 text-xs hover:bg-bg-elevated">
+                <input type="checkbox" name="pick" value={m.id} className="mt-0.5" />
+                <span className="min-w-0">
+                  <span className="mono text-text-muted">{m.mailbox}</span>
+                  {m.dateHdr ? <span className="text-text-muted"> &middot; {m.dateHdr}</span> : null}
+                  <span className="block break-words">{m.subject ?? '(no subject)'}</span>
+                  {m.sender ? <span className="mono block text-text-muted">{m.sender}</span> : null}
+                </span>
+              </label>
+            ))}
+          </div>
+          {pickableTruncated && (
+            <p className="text-xs text-warning">
+              Showing the first {PICK_CAP}. For a larger set, use the query sweep above.
+            </p>
+          )}
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="min-w-48 flex-1 text-sm">
+              <span className="mb-1 block">Reason / ticket</span>
+              <input
+                name="reason"
+                required
+                autoComplete="off"
+                placeholder="why these are being removed"
+                className="w-full rounded border bg-bg-elevated px-3 py-1.5 text-sm"
+              />
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block">Type <code className="mono font-bold">SWEEP</code></span>
+              <input name="confirm" required autoComplete="off" className="w-32 rounded border bg-bg-elevated px-3 py-1.5 text-sm mono" />
+            </label>
+            <button className="btn btn-danger">Label &amp; Trash selected</button>
+          </div>
+          <p className="text-xs text-text-muted">
+            Recorded in the audit log with your reason. These go straight to Trash by id; no
+            domain-wide scan runs.
+          </p>
+        </form>
       )}
 
       {job.children.length > 0 && (

@@ -430,6 +430,101 @@ export async function labelSwept(
 }
 
 /**
+ * Trash a SPECIFIC set of messages in one mailbox by their Gmail message ids.
+ *
+ * This is the hand-picked counterpart to a query sweep: the operator ticked exact messages
+ * from a scope result, so there is no query to over-reach and no `assertSweepSafe` to run —
+ * explicit ids in a named mailbox are the narrowest target Gmail has, narrower even than
+ * `rfc822msgid:`. Still trash, never delete. Returns null for a bad mailbox or when no id
+ * survives validation, so the runner never hands GAM a half-formed command.
+ *
+ * Gmail message ids are the immutable API ids GAM prints in the `id` column of
+ * `print messages` — hex-ish `[A-Za-z0-9_-]+`. Anything else is rejected rather than passed.
+ */
+function cleanIds(ids: string[]): string[] {
+  return ids.map((x) => String(x ?? '').trim()).filter((x) => /^[A-Za-z0-9_-]+$/.test(x));
+}
+const MAILBOX_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function trashIdsArgs(mailbox: string, ids: string[]): string[] | null {
+  const m = String(mailbox ?? '').trim().toLowerCase();
+  const clean = cleanIds(ids);
+  if (!MAILBOX_RE.test(m) || !clean.length) return null;
+  return ['user', m, 'trash', 'messages', 'ids', clean.join(','), 'doit'];
+}
+
+export function labelIdsArgs(mailbox: string, ids: string[], label: string): string[] | null {
+  const m = String(mailbox ?? '').trim().toLowerCase();
+  const clean = cleanIds(ids);
+  if (!MAILBOX_RE.test(m) || !clean.length || !label.trim()) return null;
+  return ['user', m, 'modify', 'messages', 'ids', clean.join(','), 'addlabel', label, 'doit'];
+}
+
+export interface TrashItem { mailbox: string; id: string; }
+
+/**
+ * Group hand-picked (mailbox, id) pairs by mailbox and, for each, apply the warning label
+ * then trash the named messages. Gated by WARDEN_ALLOW_DESTRUCTIVE exactly like `runSweep`.
+ * GAM's exit code is the success signal (0 = done, 60 = nothing matched / already gone —
+ * both benign), consistent with how the rest of this module treats GAM: a mailbox whose
+ * trash command did not exit cleanly is reported as a failure, never silently counted as done.
+ */
+export async function runTrashSelected(
+  settings: GamSettings & { sweepWarningLabel?: string },
+  items: TrashItem[]
+): Promise<{ requested: number; trashed: number; mailboxes: number; failures: string[] }> {
+  if (process.env.WARDEN_ALLOW_DESTRUCTIVE !== '1') throw new DestructiveDisabledError();
+
+  const byBox = new Map<string, string[]>();
+  for (const it of items) {
+    const mb = String(it?.mailbox ?? '').trim().toLowerCase();
+    const [id] = cleanIds([it?.id ?? '']);
+    if (!MAILBOX_RE.test(mb) || !id) continue;
+    const list = byBox.get(mb) ?? [];
+    list.push(id);
+    byBox.set(mb, list);
+  }
+
+  const label = (settings.sweepWarningLabel ?? '').trim();
+  const gam = (args: string[]) =>
+    new Promise<{ out: string; code: number }>((resolve) => {
+      let o = '';
+      const c = spawn(settings.gamPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      c.stdout.on('data', (d) => (o += d));
+      c.stderr.on('data', (d) => (o += d)); // drained, never left as an unread pipe
+      const t = setTimeout(() => c.kill('SIGKILL'), settings.scanTimeoutSeconds * 1000);
+      c.on('error', () => { clearTimeout(t); resolve({ out: o, code: -1 }); });
+      c.on('close', (code) => { clearTimeout(t); resolve({ out: o, code: code ?? -1 }); });
+    });
+
+  let requested = 0;
+  let trashed = 0;
+  const failures: string[] = [];
+
+  for (const [mb, ids] of byBox) {
+    requested += ids.length;
+    // Label first so the warning chip is on the message, then trash. Labelling is best-effort
+    // — a label failure must not stop the message being removed.
+    if (label) {
+      await gam(['user', mb, 'create', 'label', label]); // exit 50 = already exists, harmless
+      await gam(['user', mb, 'update', 'labelsettings', label, 'backgroundcolor', '#cc3a21', 'textcolor', '#ffffff']);
+      const la = labelIdsArgs(mb, ids, label);
+      if (la) await gam(la);
+    }
+    const ta = trashIdsArgs(mb, ids);
+    if (!ta) { failures.push(`${mb}: no valid ids`); continue; }
+    const r = await gam(ta);
+    // Only a clean exit 0 means every named message was trashed. GAM returns 50 when any id
+    // did not exist (e.g. already gone) — a partial that must be surfaced, never counted as
+    // done, so silence here always means "removed", not "could not".
+    if (r.code === 0) trashed += ids.length;
+    else failures.push(`${mb}: GAM exit ${r.code}${/Does not exist/i.test(r.out) ? ' (a message no longer existed)' : ''}`);
+  }
+
+  return { requested, trashed, mailboxes: byBox.size, failures };
+}
+
+/**
  * Parse the account-check blob into a per-mechanism breakdown with an overall verdict, so
  * the job page can say plainly "clean" vs "review these", with the detail behind each line
  * — not just a terse flag string. The blob is the concatenated output of ACCOUNT_CHECKS,
