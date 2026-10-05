@@ -73,6 +73,25 @@ Why a dedicated host: the GAM service-account key that Warden uses can read and 
 **every mailbox in your domain**. The installer creates that key on the host itself, and it
 should never live anywhere else.
 
+### Before you start — the Google side
+
+Warden drives Google Workspace through GAM, so a few things must be true in your tenant. The
+GAM setup step (`deploy/gam-setup.sh`) handles the project and API enabling for you, but it
+cannot override an organisation policy, so check these first:
+
+- **A super admin account** you can sign in with once, during setup.
+- **Creating a Google Cloud project is allowed.** GAM creates a project and enables the APIs
+  Warden needs (Admin SDK — Directory and Reports, Alert Center, Gmail). If your org blocks
+  project creation, have a GCP org admin allow it or pre-create a project and point GAM at it.
+- **Domain-wide delegation is permitted.** Setup authorises the service account for Gmail in
+  every mailbox; an org policy that forbids DWD will block the last step.
+- **Outbound HTTPS from the VM to Google.** The host needs egress on 443 to
+  `*.googleapis.com` and `accounts.google.com`. It needs no inbound internet access and must
+  not have any.
+- **API access controls, if you use them.** If your tenant restricts third-party/app API
+  access (Security → API controls), allow the service account's client ID for the scopes the
+  delegation step lists.
+
 ---
 
 ## Install
@@ -253,7 +272,9 @@ Versions below 1.0 are marked pre-release.
 ## Day to day
 
 - **Upgrade:** `cd Warden && git pull && sudo ./deploy/install.sh`. Your answers, secrets,
-  data and settings are kept.
+  data and settings are kept. Migrations are forward-only, so **snapshot first** outside an
+  incident: `sudo -u postgres pg_dump warden > warden-preupgrade.sql` (and a VM snapshot if you
+  have one). To roll back, restore that dump and `git checkout` the previous tag.
 - **Change the port, networks or certificate:** re-run the installer; it offers your current
   answers as defaults. For TLS alone:
   - `sudo ./deploy/setup-tls.sh selfsigned [name]`
@@ -263,10 +284,40 @@ Versions below 1.0 are marked pre-release.
   `sudo -u warden -H bash -c "cd /opt/warden && npx tsx scripts/setup-token.ts"`
 - **Every admin locked out:**
   `sudo -u warden -H bash -c "cd /opt/warden && npx tsx scripts/seed-admin.ts you@your-district.org"`
-- **Back up:**
-  - `/opt/warden/.env`, which holds `WARDEN_MASTER_KEY`. Without it, every saved credential
-    has to be re-entered.
-  - The database: `sudo -u postgres pg_dump warden > warden.sql`.
+- **Back up / restore / rebuild:** see [Backup and recovery](#backup-and-recovery) below.
+
+## Backup and recovery
+
+Three things make a Warden host, and a backup needs all three:
+
+1. **`/opt/warden/.env`** — holds `WARDEN_MASTER_KEY`. Every credential in the database is
+   encrypted with it; lose it and each one (GAM path, KnowBe4, CrowdStrike, SMTP) must be
+   re-entered by hand. Back it up somewhere separate from the database.
+2. **The database** — sign-in history, reports, alerts, audit log, settings.
+   `sudo -u postgres pg_dump warden > warden.sql`.
+3. **The GAM credentials** — `/var/lib/warden/.gam` (service-account key, oauth). On a VM the
+   installer can recreate these by re-running `deploy/gam-setup.sh`; backing them up saves that
+   round trip. In **Docker** they live in the `warden-data` volume, which is **not** in the
+   `pg_dump` — back the volume up separately (`docker run --rm -v warden-data:/d -v "$PWD":/b
+   alpine tar czf /b/warden-data.tgz -C /d .`).
+
+A scheduled backup is a cron line writing (1) and (2) to off-host storage nightly; rotate it.
+
+**Restore onto a fresh host:**
+1. Install Warden (`deploy/install.sh`) but stop before the first-run wizard.
+2. Restore `.env` (so the master key matches the encrypted rows), then
+   `sudo -u postgres psql warden < warden.sql`.
+3. Restore `/var/lib/warden/.gam`, or re-run `deploy/gam-setup.sh` to recreate it.
+4. `sudo systemctl restart warden-web`. Your users, settings and history are back; sign in
+   normally (the setup code is only for a brand-new, empty database).
+
+**Rotating `WARDEN_MASTER_KEY`:** there is no in-place re-encrypt command yet. To rotate,
+re-enter each secret in Settings after setting a new key — or keep the key in escrow (a sealed
+copy with your other break-glass credentials) so a lost host is recoverable. Treat the key as
+you would a domain admin password.
+
+> **Single-tenant by design.** One host and database serve **one** district; there is no
+> shared, cross-district console. Several districts means several isolated installs.
 
 ## Security model, briefly
 

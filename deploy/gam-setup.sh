@@ -35,18 +35,50 @@ gam_as() { sudo -u "$APP_USER" -H "$GAM" "$@"; }
 step() { printf '\n\033[1;36m── %s ──\033[0m\n' "$*"; }
 pause() { read -r -p "$(printf '\033[1m?\033[0m Press Enter when done (Ctrl-C to stop here)... ')" _ || true; }
 
+# GAM7, pinned and fetched straight from the GAM-team GitHub release — the same method the
+# Docker image uses (see Dockerfile). The old `curl … git.io/gam-install | bash` is gone: git.io
+# was sunset by GitHub in 2022, so it was both broken and an unpinned remote-code path for the
+# one binary that holds domain-wide delegation. Bump GAM_VERSION to upgrade (releases:
+# github.com/GAM-team/GAM/releases). Set GAM_SHA256_x86_64 / GAM_SHA256_arm64 to verify the
+# tarball against a known hash; left unset, it relies on HTTPS + GitHub integrity and says so.
+GAM_VERSION="${GAM_VERSION:-7.48.14}"
+gam_download() {
+  local arch
+  case "$(uname -m)" in
+    x86_64|amd64)  arch=x86_64 ;;
+    aarch64|arm64) arch=arm64 ;;
+    *) die "unsupported architecture $(uname -m) — install GAM manually from github.com/GAM-team/GAM/releases and set its path in the wizard" ;;
+  esac
+  local url="https://github.com/GAM-team/GAM/releases/download/v${GAM_VERSION}/gam-${GAM_VERSION}-linux-${arch}-glibc2.35.tar.xz"
+  local tmp; tmp="$(mktemp -d)"
+  log "downloading GAM ${GAM_VERSION} (${arch}) from the GAM-team GitHub release"
+  curl -fsSL -o "$tmp/gam.tar.xz" "$url" || { rm -rf "$tmp"; die "GAM download failed: $url"; }
+  local var="GAM_SHA256_${arch}"; local want="${!var:-}"
+  if [[ -n "$want" ]]; then
+    echo "${want}  ${tmp}/gam.tar.xz" | sha256sum -c - >/dev/null 2>&1 \
+      || { rm -rf "$tmp"; die "GAM tarball checksum mismatch — refusing to install"; }
+    log "checksum verified"
+  else
+    warn "no pinned checksum for ${arch}; proceeding on HTTPS + GitHub release integrity"
+  fi
+  # The tarball contains a top-level gam7/ directory, so extracting into $(dirname "$GAM_DIR")
+  # (normally /opt) lands the binary at $GAM_DIR/gam.
+  tar -xJf "$tmp/gam.tar.xz" -C "$(dirname "$GAM_DIR")" || { rm -rf "$tmp"; die "GAM extract failed"; }
+  rm -rf "$tmp"
+}
+
 # ── 1. install ──────────────────────────────────────────────────────────────
 step "1/4  Install GAM7"
 if [[ -x "$GAM" ]]; then
   log "GAM7 already installed: $("$GAM" version 2>/dev/null | head -1 || echo "$GAM")"
-  if yesno "Update it to the latest release?" n; then
-    bash <(curl -s -S -L https://git.io/gam-install) -l -d "$(dirname "$GAM_DIR")"
+  if yesno "Re-install / update to GAM ${GAM_VERSION}?" n; then
+    gam_download
   fi
 else
-  log "downloading GAM7 to ${GAM_DIR} (from github.com/GAM-team/GAM)"
-  # -l: install only — the project and authorisation steps below run as the warden user,
-  # not as root, so the credentials land in warden's home where the app can read them.
-  bash <(curl -s -S -L https://git.io/gam-install) -l -d "$(dirname "$GAM_DIR")"
+  log "installing GAM ${GAM_VERSION} to ${GAM_DIR}"
+  # Binary only: the project and authorisation steps below run as the warden user, not root,
+  # so the credentials land in warden's home where the app can read them.
+  gam_download
 fi
 [[ -x "$GAM" ]] || die "GAM7 did not install to ${GAM}"
 chown -R "$APP_USER:$APP_USER" "$GAM_DIR"
