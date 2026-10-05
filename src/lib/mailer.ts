@@ -28,6 +28,7 @@
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 import { errText } from './errors';
+import { fmtTs } from './time';
 
 export interface MailSettings {
   enabled: boolean;
@@ -345,7 +346,7 @@ export function riskDigest(
       {
         items: flags.map((f) => ({
           title: `${f.score}  ${f.mailbox}`,
-          meta: [f.ts.toISOString().slice(0, 16).replace('T', ' ') + 'Z', f.ip, f.geo].filter(Boolean).join('  ·  '),
+          meta: [fmtTs(f.ts), f.ip, f.geo].filter(Boolean).join('  ·  '),
           detail: f.reasons.join(' · '),
           severity: f.score >= 70 ? ('critical' as const) : ('high' as const)
         }))

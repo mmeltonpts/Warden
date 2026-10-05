@@ -22,6 +22,7 @@ export interface WardenSettings extends GamSettings {
   districtIpPrefix: string;
   consoleUrl: string;
   theme: string;
+  timezone: string;
   reports: { addresses: string; lookbackDays: number; autoIncident: boolean };
   schedule: {
     alertsMinutes: number;
@@ -130,6 +131,9 @@ export const DEFAULTS: WardenSettings = {
   districtIpPrefix: '',
   consoleUrl: '',
   theme: 'warden',
+  // Blank means render in the host VM's own zone, which on a district box is already local.
+  // Set an IANA zone (e.g. America/Chicago) to pin it regardless of the server clock.
+  timezone: '',
   reports: {
     // The mailboxes your Phish Alert Button (or staff) forward suspected phish to. Adding
     // phisher.knowbe4.com reconstructs history from staff Sent folders if the PAB was
@@ -365,6 +369,8 @@ export const FIELDS = [
     help: 'The address staff use to reach this console, including the port — for example https://warden.example.org:8443. Used for links in notification emails.' },
   { section: 'General', key: 'theme', label: 'Colour theme', type: 'select', options: ['warden', 'campuslink'],
     help: 'Cosmetic only.' },
+  { section: 'General', key: 'timezone', label: 'Display time zone', type: 'text',
+    help: 'An IANA time-zone name (e.g. America/Chicago, America/New_York) used to show every timestamp in the console and in notification emails. Stored times are always UTC; this only changes how they are shown. Leave blank to use the server’s own time zone. Takes effect after the next restart.' },
   { section: 'Google Workspace', key: 'gamPath', label: 'GAM binary path', type: 'text', sensitive: true,
     help: 'Executed for every scope, sweep and scan. Encrypted at rest.' },
   { section: 'Google Workspace', key: 'domains.staff', label: 'Staff domain', type: 'text', required: true,

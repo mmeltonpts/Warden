@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { fmtTs } from '@/lib/time';
 import { revalidatePath } from 'next/cache';
 import { currentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
@@ -11,7 +12,7 @@ export const dynamic = 'force-dynamic';
 const STATE_PILL: Record<string, string> = {
   SENT: 'pill', CONFIRMED_YES: 'pill-ok', DENIED: 'pill-critical', HIDDEN: 'pill-critical', EXPIRED: 'pill', ERROR: 'pill-high'
 };
-const fmt = (d: Date | null) => (d ? d.toISOString().replace('T', ' ').slice(0, 16) : '');
+const fmt = (d: Date | null) => (d ? fmtTs(d) : '');
 const parseChecks = (j: string | null): Array<{ at: string; label: string; detail: string }> => {
   try { return j ? JSON.parse(j) : []; } catch { return []; }
 };
@@ -26,7 +27,7 @@ async function sendNotice(formData: FormData) {
   const n = await prisma.wardenStudentVpnNotice.findUnique({ where: { id } });
   if (!n || n.state !== 'QUEUED') redirect(back);
   const cfg = await getSettings(prisma);
-  const when = n.signInTs.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+  const when = fmtTs(n.signInTs);
   const body = cfg.studentVpn.noticeBody.replaceAll('{when}', when).replaceAll('{building}', n.building ?? 'School');
   const res = await sendMail(cfg.mail, [n.student], cfg.studentVpn.noticeSubject, body, {
     throttleKey: `svpn-${n.id}`, ...(n.adminEmail ? { replyTo: n.adminEmail } : {})
@@ -147,7 +148,7 @@ export default async function VerifyPage({
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="pill">SENT</span>
                             <strong>{v.mailbox}</strong>
-                            <span className="text-xs text-text-muted">signed in {fmt(v.signInTs)} UTC · {v.netOrg ?? '?'}{v.geo ? ` (${v.geo})` : ''} · emailed {fmt(v.sentAt)}</span>
+                            <span className="text-xs text-text-muted">signed in {fmt(v.signInTs)} · {v.netOrg ?? '?'}{v.geo ? ` (${v.geo})` : ''} · emailed {fmt(v.sentAt)}</span>
                           </div>
                           {checks.length > 0 && (
                             <ul className="mt-1 text-xs text-text-muted">
@@ -218,7 +219,7 @@ export default async function VerifyPage({
                   <div>
                     <strong>{n.student}</strong>
                     <div className="text-xs text-text-muted">
-                      {fmt(n.signInTs)} UTC · {n.netOrg ?? 'VPN'}{n.geo ? ` (${n.geo})` : ''}
+                      {fmt(n.signInTs)} · {n.netOrg ?? 'VPN'}{n.geo ? ` (${n.geo})` : ''}
                       {' · '}{n.building ?? n.ouPath ?? 'unknown building'}{n.schoolHours ? ' · during school hours' : ''}
                       {n.adminEmail ? ` · routed to ${n.adminEmail}` : ' · no building admin matched'}
                     </div>

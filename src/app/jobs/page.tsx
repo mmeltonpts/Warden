@@ -1,7 +1,9 @@
 import { redirect } from 'next/navigation';
+import { fmtTs } from '@/lib/time';
 import { currentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { getSettings } from '@/lib/settings';
+import { AutoRefresh } from './AutoRefresh';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +19,9 @@ export default async function JobsPage() {
     include: { operator: { select: { email: true } } }
   });
 
+  // Poll only while something is still moving through the queue; a settled list is static.
+  const active = jobs.some((j) => j.status === 'QUEUED' || j.status === 'RUNNING');
+
   // INCOMPLETE must never read as success: GAM ran but did not finish, so any count on
   // that row is a floor, not a total.
   const cls = (s: string) =>
@@ -26,8 +31,17 @@ export default async function JobsPage() {
 
   return (
     <div className="space-y-4">
+      <AutoRefresh active={active} />
       <header>
-        <h1 className="text-lg font-semibold">Jobs</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-lg font-semibold">Jobs</h1>
+          {active && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-text-muted" title="This list updates itself while jobs are running.">
+              <span className="inline-block h-2 w-2 animate-pulse rounded-full" style={{ background: 'rgb(var(--accent))' }} />
+              live
+            </span>
+          )}
+        </div>
         <p className="text-sm text-text-muted">
           One job runs at a time — two concurrent full-domain scans compete for the same
           Google API quota.
@@ -49,7 +63,7 @@ export default async function JobsPage() {
                 <th className="th">Query</th>
                 <th className="th w-72">Result</th>
                 <th className="th w-32">By</th>
-                <th className="th w-40">Created (UTC)</th>
+                <th className="th w-40">Created</th>
               </tr>
             </thead>
             <tbody>
@@ -73,7 +87,7 @@ export default async function JobsPage() {
                   <td className="td mono text-xs text-text-muted">
                     {/* Was headed "Started" while rendering createdAt, with no year and no
                         Z — at 22:00 Eastern in September that prints tomorrow's date. */}
-                    {j.createdAt.toISOString().slice(0, 16).replace('T', ' ')}Z
+                    {fmtTs(j.createdAt)}
                   </td>
                 </tr>
               ))}

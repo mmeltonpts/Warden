@@ -1,4 +1,5 @@
 import { redirect, notFound } from 'next/navigation';
+import { fmtTs, fmtDate } from '@/lib/time';
 import { revalidatePath } from 'next/cache';
 import Link from 'next/link';
 import { currentUser } from '@/lib/auth';
@@ -171,7 +172,7 @@ export default async function ReportDetail({ params }: { params: Promise<{ id: s
         <h1 className="text-lg font-semibold">{report.originalSubject || '(no subject parsed)'}</h1>
         <div className="text-sm text-text-muted">
           Reported by <span className="mono">{report.reporter}</span> on{' '}
-          {report.reportedAt.toISOString().slice(0, 16).replace('T', ' ')}
+          {fmtTs(report.reportedAt)}
           {report.reportedTo && (
             <>
               {' '}
@@ -188,7 +189,7 @@ export default async function ReportDetail({ params }: { params: Promise<{ id: s
               ['Original sender', report.originalSender ?? 'not parsed'],
               ['Original recipients', report.originalTo ?? 'not parsed'],
               ['Current state', report.state.replace('_', ' ')],
-              report.reviewedBy ? ['Reviewed by', `${report.reviewedBy} ${report.reviewedAt?.toISOString().slice(0, 10) ?? ''}`] : null,
+              report.reviewedBy ? ['Reviewed by', `${report.reviewedBy} ${fmtDate(report.reviewedAt)}`] : null,
               ['Gmail message id', report.msgId]
             ]
               .filter(Boolean)
@@ -385,7 +386,7 @@ export default async function ReportDetail({ params }: { params: Promise<{ id: s
           )}
           {report.aiRanAt && (
             <span className="text-xs text-text-muted">
-              Last run {report.aiRanAt.toISOString().slice(0, 16).replace('T', ' ')}
+              Last run {fmtTs(report.aiRanAt)}
               {report.aiRanBy ? ` by ${report.aiRanBy}` : ''}. Runs take up to a minute.
             </span>
           )}
@@ -409,7 +410,7 @@ export default async function ReportDetail({ params }: { params: Promise<{ id: s
             <tbody>
               {siblings.map((s) => (
                 <tr key={s.id} className="border-b last:border-0">
-                  <td className="td mono text-xs">{s.reportedAt.toISOString().slice(0, 10)}</td>
+                  <td className="td mono text-xs">{fmtDate(s.reportedAt)}</td>
                   <td className="td">
                     <Link href={`/reports/${s.id}`} className="mono text-xs underline">
                       {s.reporter}

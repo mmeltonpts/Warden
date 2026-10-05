@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { fmtTs } from '@/lib/time';
 import Link from 'next/link';
 import { currentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
@@ -123,7 +124,7 @@ export default async function EdrPage({
   const flagBy = new Map(flags.map((f) => [f.mailbox, f._count._all]));
   const repBy = new Map(reports.map((r) => [r.reporter, r._count._all]));
 
-  const t = (d: Date) => d.toISOString().slice(0, 16).replace('T', ' ') + 'Z';
+  const t = (d: Date) => fmtTs(d);
 
   // ── remote-access tool inventory ──────────────────────────────────────────
   // Read from the hourly background snapshot (src/lib/remote-tools-sync.ts). Fetching live
@@ -150,7 +151,7 @@ export default async function EdrPage({
           <th className="th">Tool</th>
           <th className="th">Last used by</th>
           <th className="th">PC</th>
-          <th className="th w-36">Last used (UTC)</th>
+          <th className="th w-36">Last used</th>
         </tr>
       </thead>
       <tbody>
@@ -456,7 +457,7 @@ export default async function EdrPage({
                           className="text-text-muted"
                           title={`From Falcon login history: ${r.loginUser ?? ''}. The alert itself ran as SYSTEM.`}
                         >
-                          {' '}(signed in to this PC{r.loginAt ? ` at ${r.loginAt.toISOString().slice(5, 16).replace('T', ' ')}Z` : ''} — alert ran as SYSTEM)
+                          {' '}(signed in to this PC{r.loginAt ? ` at ${fmtTs(r.loginAt)}` : ''} — alert ran as SYSTEM)
                         </span>
                       )}
                       {(flagBy.get(r.mailbox) || repBy.get(r.mailbox)) && (

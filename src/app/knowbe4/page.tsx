@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { fmtDate } from '@/lib/time';
 import { currentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { GraduationCap, TriangleAlert, ShieldCheck, Users2 } from 'lucide-react';
@@ -9,7 +10,7 @@ function pct(n: number | null | undefined) {
   return n === null || n === undefined ? '—' : `${n.toFixed(1)}%`;
 }
 function day(d: Date | null | undefined) {
-  return d ? d.toISOString().slice(0, 10) : 'never';
+  return d ? fmtDate(d) : 'never';
 }
 
 export default async function KnowBe4Page() {

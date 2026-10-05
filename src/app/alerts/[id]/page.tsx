@@ -1,4 +1,5 @@
 import { redirect, notFound } from 'next/navigation';
+import { fmtTs, fmtDate } from '@/lib/time';
 import { revalidatePath } from 'next/cache';
 import Link from 'next/link';
 import { currentUser } from '@/lib/auth';
@@ -116,9 +117,9 @@ export default async function AlertDetail({ params }: { params: Promise<{ id: st
     ['Source', alert.source],
     ['Severity', alert.severity],
     ['Google status', alert.googleState],
-    ['Raised', alert.createTime.toISOString().replace('T', ' ').slice(0, 19)],
+    ['Raised', fmtTs(alert.createTime)],
     ['Window', alert.startTime && alert.endTime
-      ? `${alert.startTime.toISOString().slice(0, 19).replace('T', ' ')} → ${alert.endTime.toISOString().slice(0, 19).replace('T', ' ')}`
+      ? `${fmtTs(alert.startTime)} → ${fmtTs(alert.endTime)}`
       : null],
     ['Account', alert.email],
     ['Sender', alert.fromHeader],
@@ -127,7 +128,7 @@ export default async function AlertDetail({ params }: { params: Promise<{ id: st
     ['IP address', alert.ip],
     ['Network owner', alert.ipOrg],
     ['Allocation', alert.ipNet],
-    ['Reviewed by', alert.reviewedBy ? `${alert.reviewedBy} ${alert.reviewedAt?.toISOString().slice(0, 10) ?? ''}` : null],
+    ['Reviewed by', alert.reviewedBy ? `${alert.reviewedBy} ${fmtDate(alert.reviewedAt)}` : null],
     ['Alert ID', alert.alertId]
   ];
 
@@ -317,7 +318,7 @@ export default async function AlertDetail({ params }: { params: Promise<{ id: st
             <tbody>
               {sameNet.map((o) => (
                 <tr key={o.alertId} className="border-b last:border-0">
-                  <td className="td mono text-xs">{o.createTime.toISOString().slice(0, 10)}</td>
+                  <td className="td mono text-xs">{fmtDate(o.createTime)}</td>
                   <td className="td">
                     <Link href={`/alerts/${o.alertId}`} className="mono text-xs underline">
                       {o.email}

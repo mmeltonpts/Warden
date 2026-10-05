@@ -77,8 +77,10 @@ if [[ "$FIRST_RUN" == 1 ]]; then
     *) TLS_CHOICE="selfsigned" ;;
   esac
 fi
-DO_UFW=0;    yesno "Configure the firewall (ufw) to allow only those networks?" y && DO_UFW=1
-DO_CLAUDE=0; yesno "Install the Claude Code CLI for optional AI triage? (uses your Claude subscription, no API key)" n && DO_CLAUDE=1
+# Firewall default is overridable so an unattended install in a container (where host-level
+# ufw is the wrong layer and iptables may be unavailable) can skip it: WARDEN_UFW=0.
+DO_UFW=0;    yesno "Configure the firewall (ufw) to allow only those networks?" "${WARDEN_UFW:-y}" && DO_UFW=1
+DO_CLAUDE=0; yesno "Install the Claude Code CLI for optional AI triage? (uses your Claude subscription, no API key)" "${WARDEN_CLAUDE:-n}" && DO_CLAUDE=1
 save_conf
 
 # ── packages ────────────────────────────────────────────────────────────────
@@ -236,7 +238,8 @@ fi
 
 # ── firewall ────────────────────────────────────────────────────────────────
 if [[ "$DO_UFW" == 1 ]]; then
-  bash "$HERE/ufw-warden.sh" >/dev/null
+  # Best-effort: a firewall misconfiguration must not abort an otherwise-good install.
+  bash "$HERE/ufw-warden.sh" >/dev/null || warn "firewall step failed (ufw unavailable in this environment?) — configure network access another way"
   log "firewall: console ${PORT} and SSH 22 open to your networks only"
 fi
 

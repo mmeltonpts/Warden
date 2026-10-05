@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { fmtTs } from '@/lib/time';
 import { revalidatePath } from 'next/cache';
 import Link from 'next/link';
 import { currentUser } from '@/lib/auth';
@@ -108,7 +109,7 @@ export default async function QuarantinePage({
     revalidatePath('/quarantine');
   }
 
-  const day = (d: Date) => d.toISOString().slice(0, 16).replace('T', ' ') + 'Z';
+  const day = (d: Date) => fmtTs(d);
 
   return (
     <div className="max-w-6xl space-y-4">

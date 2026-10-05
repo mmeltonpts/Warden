@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { fmtTs } from '@/lib/time';
 import { revalidatePath } from 'next/cache';
 import { currentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
@@ -149,7 +150,7 @@ export default async function SettingsPage({
 
       {row?.updatedAt && (
         <p className="text-xs text-text-muted">
-          Last changed {row.updatedAt.toISOString().slice(0, 16).replace('T', ' ')} by{' '}
+          Last changed {fmtTs(row.updatedAt)} by{' '}
           {row.updatedBy ?? 'unknown'}.
         </p>
       )}

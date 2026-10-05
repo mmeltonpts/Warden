@@ -25,11 +25,13 @@ import {
   checkSchedule, nextCheckDue, pastLastCheck, renderVerifyEmail, codeFromSubject
 } from '../src/lib/verify';
 import { messageLabels, findReplies, suspiciousFilters } from '../src/lib/gam-mailbox';
+import { fmtTs, setDefaultTz } from '../src/lib/time';
 
 const prisma = new PrismaClient();
 
 async function main(): Promise<string> {
   const s = await getSettings(prisma);
+  setDefaultTz(s.timezone); // verify emails render sign-in times in the district's local time
   const cfg = s.signinVerify;
   if (!cfg.enabled) return 'disabled';
   if (!s.mail.enabled) return 'skipped — email notifications are off';
@@ -79,7 +81,7 @@ async function main(): Promise<string> {
     const fromDomain = (s.mail.from.split('@')[1] || s.domains.staff).trim();
     const rfcMessageId = `warden-${code.toLowerCase()}@${fromDomain}`;
     const displayName = f.mailbox.split('@')[0].replace(/\./g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-    const when = f.ts.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+    const when = fmtTs(f.ts);
     const where = `${org}${f.geo ? ` (${f.geo})` : ''}`;
 
     const email = renderVerifyEmail(
@@ -227,7 +229,7 @@ async function main(): Promise<string> {
         blocks: [
           { rows: [
             ['Mailbox', v.mailbox],
-            ['Sign-in', v.signInTs.toISOString().replace('T', ' ').slice(0, 16) + ' UTC'],
+            ['Sign-in', fmtTs(v.signInTs)],
             ['Network', `${v.netOrg ?? '?'}${v.geo ? ` (${v.geo})` : ''}`],
             ['Verification', decided]
           ] },

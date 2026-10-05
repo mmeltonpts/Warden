@@ -1,4 +1,5 @@
 import { ago, type Freshness } from '@/lib/freshness';
+import { fmtClock } from '@/lib/time';
 
 /**
  * A one-line statement of whether this queue is being fed, and a distinct empty state.
@@ -19,7 +20,7 @@ export function IngestStatus({ f, what }: { f: Freshness; what: string }) {
   return (
     <p className={`text-xs ${f.stale ? 'text-warning' : 'text-text-muted'}`}>
       Last {what} ingest {ago(f.ageMinutes)}
-      {f.lastRunAt && <> ({f.lastRunAt.toISOString().slice(11, 16)}Z)</>}, every{' '}
+      {f.lastRunAt && <> ({fmtClock(f.lastRunAt)})</>}, every{' '}
       {f.everyMinutes} min.
       {f.running && ' Running now.'}
       {!f.ok && (

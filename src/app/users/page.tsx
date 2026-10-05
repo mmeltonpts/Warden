@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { fmtTs } from '@/lib/time';
 import { revalidatePath } from 'next/cache';
 import { randomBytes } from 'node:crypto';
 import { currentUser, hashPassword } from '@/lib/auth';
@@ -354,7 +355,7 @@ export default async function UsersPage({
                   <div className="mt-1 text-xs text-text-muted">{ROLE_HELP[u.role]}</div>
                 </td>
                 <td className="td mono text-xs text-text-muted">
-                  {u.lastLoginAt ? u.lastLoginAt.toISOString().slice(0, 16).replace('T', ' ') : 'never'}
+                  {u.lastLoginAt ? fmtTs(u.lastLoginAt) : 'never'}
                 </td>
                 <td className="td">
                   <div className="flex flex-wrap gap-1.5">

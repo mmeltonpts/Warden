@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { fmtTs, fmtDate } from '@/lib/time';
 import { revalidatePath } from 'next/cache';
 import { currentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
@@ -131,7 +132,7 @@ export default async function ReportsPage({
     revalidatePath('/alerts');
   }
 
-  const day = (d: Date) => d.toISOString().slice(0, 10);
+  const day = (d: Date) => fmtDate(d);
 
   return (
     <div className="space-y-5">
@@ -269,7 +270,7 @@ export default async function ReportsPage({
                         .map((r) => (
                           <tr key={r.id} className="border-b last:border-0">
                             <td className="td mono">
-                              {r.reportedAt.toISOString().slice(0, 16).replace('T', ' ')}
+                              {fmtTs(r.reportedAt)}
                             </td>
                             <td className="td"><Link href={`/reports/${r.id}`} className="mono underline-offset-2 hover:underline">{r.reporter}</Link></td>
                             <td className="td">

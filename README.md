@@ -160,6 +160,40 @@ normal Linux host. If every request in `docker compose logs caddy` comes from on
 Docker address, your Docker setup is translating addresses, and the allow list cannot tell
 clients apart. In that case, rely on the host firewall instead.
 
+### Or: create the VM for you on Proxmox VE
+
+If you run Proxmox, one command on the **PVE host** builds a dedicated Ubuntu 24.04 LXC
+container and installs the console inside it:
+
+```bash
+bash -c "$(wget -qLO - https://raw.githubusercontent.com/mmeltonpts/Warden/main/deploy/proxmox-install.sh)"
+```
+
+It asks a few questions (container ID, cores, RAM, disk, storage, network bridge, IP) with
+sensible defaults, downloads the Ubuntu template if needed, creates an **unprivileged**
+container with nesting enabled, runs the normal installer inside, and prints the console
+address and the one-time setup code at the end. Defaults are 4 cores / 8 GB / 60 GB.
+
+Drive it unattended by setting variables first — handy from a script:
+
+```bash
+CT_ID=120 CT_CORES=4 CT_RAM=8192 CT_DISK=60 CT_STORAGE=local-lvm \
+CT_BRIDGE=vmbr0 CT_IP=dhcp WARDEN_YES=1 \
+bash -c "$(wget -qLO - https://raw.githubusercontent.com/mmeltonpts/Warden/main/deploy/proxmox-install.sh)"
+```
+
+| Variable | Default | Notes |
+|---|---|---|
+| `CT_ID` | next free ID | Container ID. |
+| `CT_CORES` / `CT_RAM` / `CT_DISK` | `4` / `8192` MB / `60` GB | Sizing. |
+| `CT_STORAGE` | `local-lvm` | Where the root filesystem lives. |
+| `CT_BRIDGE` / `CT_IP` | `vmbr0` / `dhcp` | Network. Use a static CIDR like `10.20.1.50/24,gw=10.20.1.1` if you prefer. |
+| `WARDEN_YES` | unset | Set to `1` to accept all prompts (non-interactive). |
+
+The container has no kernel of its own, so keep it on an intranet bridge and use the Proxmox
+firewall; it must never be reachable from the internet. After it finishes, authorise GAM with
+`pct exec <CTID> -- /opt/warden/deploy/gam-setup.sh`.
+
 ## First-run setup (in the browser)
 
 Open the console address. The first page asks for the setup code and creates your admin

@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { fmtTs } from '@/lib/time';
 import { revalidatePath } from 'next/cache';
 import { currentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
@@ -338,7 +339,7 @@ export default async function RiskPage({
               }
             >
               <div>
-                last scan {lastRun.startedAt.toISOString().slice(0, 16).replace('T', ' ')}Z
+                last scan {fmtTs(lastRun.startedAt)}
                 {lastRun.finishedAt === null
                   ? ' — running now'
                   : lastRun.ok
@@ -453,7 +454,7 @@ export default async function RiskPage({
                     return (
                       <li key={f.id} className="mono text-xs">
                         <span className={`pill pill-${band(f.score)}`}>{f.score}</span> {f.mailbox} &middot;{' '}
-                        {f.ts.toISOString().slice(0, 16).replace('T', ' ')}Z
+                        {fmtTs(f.ts)}
                         {why ? <span className="text-text-muted"> &middot; {why}</span> : null}
                       </li>
                     );
@@ -510,7 +511,7 @@ export default async function RiskPage({
                   {studentNotable.map((f) => (
                     <li key={f.id} className="mono text-xs">
                       <span className={`pill pill-${band(f.score)}`}>{f.score}</span>{' '}
-                      {f.mailbox} &middot; {f.ts.toISOString().slice(0, 16).replace('T', ' ')}Z
+                      {f.mailbox} &middot; {fmtTs(f.ts)}
                       {f.ip ? ` · ${f.ip}` : ''}
                     </li>
                   ))}
@@ -579,7 +580,7 @@ export default async function RiskPage({
               <tr>
                 <th className="th w-16">Score</th>
                 <th className="th">Mailbox</th>
-                <th className="th w-40">When (UTC)</th>
+                <th className="th w-40">When</th>
                 <th className="th">Why</th>
                 <th className="th w-48">Network</th>
                 <th className="th w-56">Triage</th>
@@ -596,7 +597,7 @@ export default async function RiskPage({
                     </td>
                     <td className="td mono">{f.mailbox.split('@')[0]}</td>
                     <td className="td mono text-text-muted">
-                      {f.ts.toISOString().slice(0, 16).replace('T', ' ')}
+                      {fmtTs(f.ts)}
                     </td>
                     <td className="td">
                       <ul className="space-y-0.5">

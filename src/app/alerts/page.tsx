@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { fmtTs } from '@/lib/time';
 import { revalidatePath } from 'next/cache';
 import Link from 'next/link';
 import { currentUser } from '@/lib/auth';
@@ -278,7 +279,7 @@ export default async function AlertsPage({
                   {studentNotable.map((a) => (
                     <li key={a.alertId} className="mono text-xs">
                       <span className="pill pill-high">{a.type}</span> {a.email} &middot;{' '}
-                      {a.createTime.toISOString().slice(0, 16).replace('T', ' ')}Z
+                      {fmtTs(a.createTime)}
                       {a.ipOrg ? ` · ${a.ipOrg}` : ''}
                     </li>
                   ))}
@@ -353,7 +354,7 @@ export default async function AlertsPage({
                         </span>
                         <Link href={`/alerts/${a.alertId}`} className="font-medium underline-offset-2 hover:underline">{a.type}</Link>
                         <span className="text-xs text-text-muted">
-                          {a.createTime.toISOString().slice(0, 16).replace('T', ' ')}
+                          {fmtTs(a.createTime)}
                         </span>
                       </div>
                       {a.subject && (<Link href={`/alerts/${a.alertId}`} className="mt-1 block break-words text-sm underline-offset-2 hover:underline">{a.subject}</Link>)}

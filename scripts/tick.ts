@@ -27,6 +27,7 @@ import { getSettings, notifyRecipients } from '../src/lib/settings';
 import { sendMessage, reportDigest, alertDigest, type Severity } from '../src/lib/mailer';
 import { errText } from '../src/lib/errors';
 import { isSetupComplete } from '../src/lib/setup';
+import { setDefaultTz } from '../src/lib/time';
 
 const prisma = new PrismaClient();
 
@@ -88,6 +89,7 @@ async function main() {
     return;
   }
   const s = await getSettings(prisma);
+  setDefaultTz(s.timezone); // digests in this run render in the district's local time
   const sch = s.schedule;
   const jobs: Array<{ key: JobKey; every: number; run: () => Promise<string> }> = [
     { key: 'alerts', every: sch.alertsMinutes, run: runAlerts },

@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { fmtTs } from '@/lib/time';
 import { currentUser } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 
@@ -118,7 +119,7 @@ export default async function AuditPage({
         <table className="w-full border-collapse bg-bg-surface">
           <thead className="border-b bg-bg-elevated">
             <tr>
-              <th className="th w-40">When (UTC)</th>
+              <th className="th w-40">When</th>
               <th className="th w-32">Operator</th>
               <th className="th w-36">Action</th>
               {/* The swept DOMAIN lives in `target`, and this column did not exist — so the
@@ -134,7 +135,7 @@ export default async function AuditPage({
             {rows.map((r) => (
               <tr key={r.id} className="border-b last:border-0 align-top">
                 <td className="td mono text-xs text-text-muted">
-                  {r.ts.toISOString().slice(0, 16).replace('T', ' ')}
+                  {fmtTs(r.ts)}
                 </td>
                 <td className="td text-xs">{r.operator.split('@')[0]}</td>
                 <td className="td">

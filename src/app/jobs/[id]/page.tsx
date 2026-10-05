@@ -1,4 +1,5 @@
 import { redirect, notFound } from 'next/navigation';
+import { fmtTs, fmtClock } from '@/lib/time';
 import { revalidatePath } from 'next/cache';
 import Link from 'next/link';
 import { currentUser } from '@/lib/auth';
@@ -292,7 +293,7 @@ export default async function JobPage({
         </div>
         <div className="text-right text-xs text-text-muted">
           <div>{job.operator.email.split('@')[0]}</div>
-          <div>{job.createdAt.toISOString().slice(0, 16).replace('T', ' ')}Z</div>
+          <div>{fmtTs(job.createdAt)}</div>
           {job.exitCode !== null && (
             <div>
               GAM exit {job.exitCode}
@@ -681,7 +682,7 @@ export default async function JobPage({
               <strong>{stats._count}</strong> messages across <strong>{mailboxes}</strong>{' '}
               mailboxes
               {job.finishedAt && (
-                <> as of {job.finishedAt.toISOString().slice(11, 16)}Z</>
+                <> as of {fmtClock(job.finishedAt)}</>
               )}
               .
             </div>

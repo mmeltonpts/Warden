@@ -12,12 +12,14 @@ import type { NetVerdict } from '../src/lib/baseline';
 import { lookupIp, classifyOrg, netKey } from '../src/lib/rdap';
 import { getSettings, notifyRecipients } from '../src/lib/settings';
 import { sendMail, riskDigest, scanFailure } from '../src/lib/mailer';
+import { setDefaultTz } from '../src/lib/time';
 
 const prisma = new PrismaClient();
 
 export async function run(opts: { days?: number } = {}) {
   void opts;
   const settings = await getSettings(prisma);
+  setDefaultTz(settings.timezone); // risk digest renders in the district's local time
   // Students are only scanned when the operator asks. ~6,336 more mailboxes is a lot of
   // new flags on a queue somebody has to read, and the events are free either way — the
   // GAM report is tenant-wide, so this only decides what is kept.
