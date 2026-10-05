@@ -31,7 +31,7 @@ import { setDefaultTz } from '../src/lib/time';
 
 const prisma = new PrismaClient();
 
-type JobKey = 'alerts' | 'reports' | 'loginscan' | 'knowbe4' | 'feeds' | 'hunt' | 'quarantine' | 'falcon' | 'verify' | 'studentvpn';
+type JobKey = 'alerts' | 'reports' | 'loginscan' | 'knowbe4' | 'feeds' | 'hunt' | 'quarantine' | 'falcon' | 'verify' | 'studentvpn' | 'prunepii';
 
 const FORCE = process.argv.includes('--force');
 const ONLY = (() => {
@@ -103,7 +103,8 @@ async function main() {
     { key: 'quarantine', every: sch.quarantineMinutes ?? 10, run: runQuarantine },
     { key: 'falcon', every: sch.falconMinutes ?? 5, run: runFalcon },
     { key: 'verify', every: sch.verifyMinutes ?? 0, run: runVerify },
-    { key: 'studentvpn', every: sch.studentVpnMinutes ?? 0, run: runStudentVpn }
+    { key: 'studentvpn', every: sch.studentVpnMinutes ?? 0, run: runStudentVpn },
+    { key: 'prunepii', every: sch.retentionMinutes ?? 1440, run: runPrunePii }
   ];
 
   for (const j of jobs) {
@@ -270,6 +271,12 @@ async function runStudentVpn(): Promise<string> {
 async function runKnowBe4(): Promise<string> {
   const { run } = await import('./sync-knowbe4');
   return summarise(await run());
+}
+
+async function runPrunePii(): Promise<string> {
+  const { prunePii, pruneSummary } = await import('../src/lib/retention');
+  const s = await getSettings(prisma);
+  return pruneSummary(await prunePii(prisma, s.retention));
 }
 
 main()

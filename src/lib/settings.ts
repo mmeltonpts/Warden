@@ -39,6 +39,13 @@ export interface WardenSettings extends GamSettings {
     falconMinutes: number;
     verifyMinutes: number;
     studentVpnMinutes: number;
+    retentionMinutes: number;
+  };
+  retention: {
+    loginEventDays: number;
+    riskFlagBenignDays: number;
+    reportBodyDays: number;
+    studentNoticeDays: number;
   };
   feeds: {
     enabled: boolean;
@@ -171,7 +178,19 @@ export const DEFAULTS: WardenSettings = {
     verifyMinutes: 2,
     // Routes new student VPN sign-ins to building admins. The queue is reviewed by a human,
     // so it does not need to be fast; hourly keeps the queue current without noise.
-    studentVpnMinutes: 60
+    studentVpnMinutes: 60,
+    // How often the PII retention prune runs. Daily is ample; it does nothing unless a
+    // retention period below is set.
+    retentionMinutes: 1440
+  },
+  retention: {
+    // PII minimisation. 0 = keep indefinitely (default, so an upgrade never surprise-deletes).
+    // Set a period to time-box each table. loginEventDays should be >= your baseline window
+    // (schedule/baselineWindowDays) or scoring loses history. See prunePii in src/lib/retention.ts.
+    loginEventDays: 0,
+    riskFlagBenignDays: 0,
+    reportBodyDays: 0,
+    studentNoticeDays: 0
   },
   feeds: {
     // Public threat feeds. These are URL-heavy, and Gmail cannot match a domain inside
@@ -484,6 +503,14 @@ export const FIELDS = [
     help: 'Community feed, no key needed.' },
   { section: 'Threat feeds', key: 'feeds.retentionDays', label: 'Discard feed entries older than (days)', type: 'number',
     help: 'Feeds go stale quickly. An indicator nobody has seen in months is noise, not intelligence.' },
+  { section: 'Data retention', key: 'retention.loginEventDays', label: 'Delete sign-in history older than (days)', type: 'number',
+    help: 'Raw sign-in events (IP, ASN, geo of staff and students). 0 keeps them forever. Set a period to minimise stored PII, but keep it at or above your baseline learning window, or sign-in scoring loses the history it compares against.' },
+  { section: 'Data retention', key: 'retention.riskFlagBenignDays', label: 'Delete reviewed-benign sign-in flags older than (days)', type: 'number',
+    help: 'Only flags you have marked BENIGN are removed. Open flags (NEW/INVESTIGATING) and confirmed compromises are kept as evidence whatever their age. 0 keeps everything.' },
+  { section: 'Data retention', key: 'retention.reportBodyDays', label: 'Clear stored report bodies older than (days)', type: 'number',
+    help: 'Clears the full forwarded email body from old phish reports, keeping the report and its metadata. A report confirmed as phishing keeps its body as evidence. 0 keeps all bodies.' },
+  { section: 'Data retention', key: 'retention.studentNoticeDays', label: 'Delete student VPN notices older than (days)', type: 'number',
+    help: 'Student handbook notices are an education record (likely FERPA). Set a period to match your records-retention policy; a notice still awaiting review is always kept. 0 keeps them forever.' },
   { section: 'CrowdStrike', key: 'crowdstrike.enabled', label: 'Pull Falcon detections', type: 'boolean',
     help: 'Read-only. Alerts and hosts only — Warden never takes action in Falcon.' },
   { section: 'CrowdStrike', key: 'crowdstrike.cloud', label: 'Falcon cloud or API base URL', type: 'text',

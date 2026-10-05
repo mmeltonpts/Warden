@@ -31,6 +31,12 @@ file district data, credentials, or live indicators in an issue or PR.
 - **No district data in the repo.** Domains, addresses, IP ranges, hostnames and people's
   names live in the database or the gitignored `private/` directory. Tests use `example.org`
   and invented names.
+- **PII retention is configurable.** Sign-in history, reviewed-benign flags, forwarded report
+  bodies and student VPN notices can be time-boxed (Settings → Data retention); the prune
+  preserves confirmed-incident evidence and never touches the audit log. It is **off by
+  default** (0 = keep), so a district sets retention to match its own records policy. Student
+  VPN notices are likely a FERPA education record — treat the database accordingly (intranet
+  only, encrypted bootstraps, access limited to the `warden` user and your DBAs).
 
 ## Dependency / CVE hygiene
 - **CI gate:** every push runs `npm audit --omit=dev --audit-level=critical`, so a critical

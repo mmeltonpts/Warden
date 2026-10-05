@@ -30,6 +30,7 @@ const PREFERRED = [
   'Quarantine',
   'Hunt',
   'Threat feeds',
+  'Data retention',
   'KnowBe4',
   'CrowdStrike',
   'Claude',
