@@ -360,8 +360,12 @@ export function assessRisk(
     reasons.push('Authenticated with a passkey/security key — cannot be relayed');
   }
 
-  // Immature baselines produce noise; keep the finding but damp the score.
-  if (baseline && !baseline.mature) score = Math.round(score * 0.6);
+  // Immature baselines produce noise; keep the finding but damp the score. A null baseline
+  // (a brand-new mailbox with no history at all) has even less to go on than an immature one,
+  // so it is damped the same way rather than scoring raw absolute signals at full weight. A
+  // genuinely strong sign-in (suspicious + foreign, say) still clears the threshold after
+  // damping; only borderline, low-information flags drop out.
+  if (!baseline || !baseline.mature) score = Math.round(score * 0.6);
 
   return { score, reasons, flag: score >= threshold };
 }

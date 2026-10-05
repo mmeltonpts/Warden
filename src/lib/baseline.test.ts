@@ -407,7 +407,9 @@ describe('foreign fallback via RDAP country when Google omits the geo', () => {
     );
     expect(r.reasons.some((x) => /OUTSIDE/.test(x))).toBe(true);
     expect(r.reasons.some((x) => /registered in NG/.test(x))).toBe(true);
-    expect(r.score).toBeGreaterThanOrEqual(50);
+    // foreign contributed to the score; the absolute value is damped here because this is a
+    // null baseline (see the null-baseline damping tests), so just assert it registered.
+    expect(r.score).toBeGreaterThan(0);
   });
 
   it("prefers Google's own location over RDAP when it has a country", () => {
@@ -428,4 +430,28 @@ describe('foreign fallback via RDAP country when Google omits the geo', () => {
     expect(r.reasons.some((x) => /OUTSIDE/.test(x))).toBe(false);
   });
 
+});
+
+describe('null-baseline damping (brand-new mailbox)', () => {
+  const mailbox = 'brand.new@example.edu';
+  it('still flags a strong sign-in (suspicious + foreign) after damping', () => {
+    const r = assessRisk(
+      { mailbox, ts: at('2026-10-01T00:00:00Z'), eventName: 'login_success',
+        ip: '198.51.100.9', asn: '64500', geo: 'NG-LA', challenge: 'password', suspicious: true },
+      null
+    );
+    expect(r.score).toBeGreaterThanOrEqual(FLAG_THRESHOLD);
+    expect(r.flag).toBe(true);
+  });
+
+  it('damps a borderline foreign-only sign-in on a mailbox with no history to advisory', () => {
+    const r = assessRisk(
+      { mailbox, ts: at('2026-10-01T00:00:00Z'), eventName: 'login_success',
+        ip: '198.51.100.9', asn: '64500', geo: 'NG-LA', challenge: 'password', suspicious: false },
+      null
+    );
+    // Raw 50 (foreign) -> x0.6 = 30: kept as an advisory finding, not escalated.
+    expect(r.score).toBeLessThan(FLAG_THRESHOLD);
+    expect(r.reasons.some((x) => /No baseline yet/.test(x))).toBe(true);
+  });
 });
