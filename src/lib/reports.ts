@@ -45,23 +45,39 @@ const IGNORE_HOSTS =
  * carries links back to them in signatures and footers. Passed in rather than hardcoded so
  * the same build serves any district.
  */
+/**
+ * Google surfaces attackers actually host landing pages and forms on. These match the broad
+ * `google` ignore above but ARE payloads — a phishing form on `docs.google.com/forms/...` or a
+ * fake login on `sites.google.com/view/...` is exactly what a report is about — so they are
+ * carved back out of the ignore. Profile-image and UI noise on other google hosts stays ignored.
+ */
+const GOOGLE_PAYLOAD_HOSTS = /^(docs|sites|drive|script)\.google\.com$|^forms\.gle$/i;
+
 function ignoredHost(h: string, ownDomains: string[]): boolean {
+  if (GOOGLE_PAYLOAD_HOSTS.test(h)) return false;
   if (IGNORE_HOSTS.test(h + '.')) return true;
   return ownDomains.some((d) => d && (h === d.toLowerCase() || h.endsWith('.' + d.toLowerCase())));
 }
 
-/** Unwrap google.com/url?q= and similar click-trackers to the real destination. */
-export function unwrapRedirect(url: string): string {
+/**
+ * Unwrap google.com/url?q= and similar click-trackers to the real destination.
+ *
+ * `depth` stops a self-referential or cyclic wrapper (`?url=…?url=…`) from recursing forever —
+ * a crafted link must never be able to overflow the stack of the thing parsing it. Five hops is
+ * far more nesting than any legitimate tracker uses.
+ */
+export function unwrapRedirect(url: string, depth = 0): string {
+  if (depth >= 5) return url;
   try {
     const u = new URL(url);
     if (/(^|\.)google\.[a-z.]+$/i.test(u.hostname) && u.pathname === '/url') {
       const q = u.searchParams.get('q') ?? u.searchParams.get('url');
-      if (q) return unwrapRedirect(decodeURIComponent(q));
+      if (q) return unwrapRedirect(decodeURIComponent(q), depth + 1);
     }
     // Generic single-hop trackers that put the target in a query parameter.
     for (const k of ['u', 'url', 'target', 'redirect', 'r']) {
       const v = u.searchParams.get(k);
-      if (v && /^https?:\/\//i.test(v)) return unwrapRedirect(decodeURIComponent(v));
+      if (v && /^https?:\/\//i.test(v)) return unwrapRedirect(decodeURIComponent(v), depth + 1);
     }
     return url;
   } catch {

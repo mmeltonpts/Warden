@@ -157,3 +157,28 @@ describe('stripSubjectTags', () => {
     expect(tagged).toBe(untagged);
   });
 });
+
+describe('Google-hosted payloads and redirect-loop safety', () => {
+  it('extracts payload-capable Google surfaces (Forms/Sites/Drive) but not google UI noise', () => {
+    const body = [
+      'Open this: https://docs.google.com/forms/d/e/ABC/viewform',
+      'and https://sites.google.com/view/portal-login/home',
+      'sent from https://www.google.com/gmail and image https://lh3.googleusercontent.com/x'
+    ].join('\n');
+    const hosts = extractPayloadHosts(body);
+    expect(hosts).toContain('docs.google.com');
+    expect(hosts).toContain('sites.google.com');
+    expect(hosts).not.toContain('www.google.com');
+    expect(hosts).not.toContain('lh3.googleusercontent.com');
+  });
+
+  it('does not recurse forever on a self-referential redirect wrapper', () => {
+    const loop = 'https://t.example.com/r?url=' + encodeURIComponent(
+      'https://t.example.com/r?url=' + encodeURIComponent(
+        'https://t.example.com/r?url=https://t.example.com/r?url=https://t.example.com/r?url=https://evil.test/final'
+      )
+    );
+    const out = unwrapRedirect(loop);
+    expect(typeof out).toBe('string'); // returns, never throws or hangs
+  });
+});
