@@ -179,9 +179,18 @@ export async function run(opts: { days?: number } = {}) {
             if (prefix) {
               const open = await prisma.wardenRiskFlag.findMany({
                 where: { mailbox: f.mailbox, state: { in: ['NEW', 'INVESTIGATING'] } },
-                select: { ip: true }
+                select: { ip: true, score: true }
               });
-              if (open.some((o) => ipPrefix(o.ip) === prefix)) return false;
+              const samePrefix = open.filter((o) => ipPrefix(o.ip) === prefix);
+              if (samePrefix.length) {
+                // Suppress a repeat of the SAME fact, but never let a flag already in the queue
+                // swallow a later, materially worse sign-in from that network. A quiet WARP flag
+                // sitting NEW must not hide a subsequent passed-MFA challenge or sensitive Gmail
+                // action from the same /24 — that escalation is exactly what a human needs to see.
+                const worstOpen = Math.max(...samePrefix.map((o) => o.score));
+                const MATERIALLY_WORSE = 15;
+                if (f.score < worstOpen + MATERIALLY_WORSE) return false;
+              }
             }
             raised.push(f);
             await prisma.wardenRiskFlag.create({

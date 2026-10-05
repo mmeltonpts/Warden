@@ -139,8 +139,12 @@ export default async function AlertsPage({
     const c = await getSettings(prisma);
     const st = String(formData.get('state'));
     const ty = String(formData.get('type') ?? '');
+    // Never let a bulk dismiss reach a CONFIRMED_* row — see dismissStudents in risk/page.tsx.
+    // The "ALL" tab previously carried no state filter and could clear a confirmed student
+    // compromise; restrict to the triage states whatever tab this fired from.
+    const DISMISSABLE = ['NEW', 'INVESTIGATING'];
     const scope = {
-      ...(st === 'ALL' ? {} : { state: st as never }),
+      state: (DISMISSABLE.includes(st) ? st : { in: DISMISSABLE }) as never,
       ...(ty ? { type: ty } : {}),
       email: { endsWith: `@${c.domains.students}` }
     };

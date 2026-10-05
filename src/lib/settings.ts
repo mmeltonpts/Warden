@@ -210,7 +210,9 @@ export const DEFAULTS: WardenSettings = {
     // A mailbox GAM can read (a user or shared mailbox, not a bare Group). Replies land here
     // and Warden matches them back by the code in the subject.
     replyMailbox: '',
-    minScore: 50,
+    // 0 means "track the risk flag threshold" (the documented default). A specific positive
+    // number overrides it to email only stronger flags. Resolved in scripts/verify-signins.ts.
+    minScore: 0,
     onlyVpnOrForeign: true,
     // Do not re-ask the same person about the same network within this many days.
     cooldownDays: 30,
@@ -511,7 +513,7 @@ export const FIELDS = [
   { section: 'Verify', key: 'signinVerify.replyMailbox', label: 'Reply mailbox', type: 'text',
     help: 'Where replies go, e.g. signin-verify@your-district.org. Must be a real mailbox GAM can read (a user or shared mailbox), not a bare Google Group. Create it and point the verification email there.' },
   { section: 'Verify', key: 'signinVerify.minScore', label: 'Only verify at or above this score', type: 'number',
-    help: 'Defaults to your risk flag threshold. Raise it to email only the strongest flags.' },
+    help: 'Leave at 0 to track your risk flag threshold (the default). Set a specific score to email only stronger flags than that threshold.' },
   { section: 'Verify', key: 'signinVerify.onlyVpnOrForeign', label: 'Only for VPN or foreign sign-ins', type: 'boolean',
     help: 'On by default — these are the cases a person can actually answer. Off emails for every flag at or above the score.' },
   { section: 'Verify', key: 'signinVerify.cooldownDays', label: "Don't re-ask the same person about the same network within (days)", type: 'number',

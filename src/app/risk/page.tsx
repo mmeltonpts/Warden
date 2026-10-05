@@ -212,10 +212,14 @@ export default async function RiskPage({
     if (u.role === 'ANALYST') redirect('/risk?who=students&error=role');
 
     const s = await getSettings(prisma);
+    // A bulk dismiss must never reach a CONFIRMED_COMPROMISE row — one click should not be able
+    // to rewrite an incident record. Whatever tab it fired from, restrict to the triage states;
+    // the "ALL" tab is the case that previously had no state filter and could clear a confirmed
+    // student compromise, and a stale CONFIRMED tab is guarded the same way.
+    const DISMISSABLE = ['NEW', 'INVESTIGATING'];
+    const formState = String(formData.get('state'));
     const scope = {
-      ...(String(formData.get('state')) === 'ALL'
-        ? {}
-        : { state: String(formData.get('state')) as never }),
+      state: (DISMISSABLE.includes(formState) ? formState : { in: DISMISSABLE }) as never,
       mailbox: { endsWith: `@${s.domains.students}` }
     };
 

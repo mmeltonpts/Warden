@@ -31,7 +31,10 @@ file district data, credentials, or live indicators in an issue or PR.
   for npm, Docker base images, and GitHub Actions.
 - **Production runtime** dependencies are kept current; `npm prune --omit=dev` removes
   build/test tooling from the deployed host and image, so dev-only advisories (test runner,
-  bundler, CLIs) are not present in the running app.
+  bundler) are not present in the running app. The Prisma CLI is kept as a production
+  dependency on purpose — `prisma migrate deploy` runs at container start and on every host
+  deploy — but it is a command-line tool invoked at startup, never imported by the web server,
+  so its advisories are not reachable from a request.
 - Known accepted items: Next.js bundles a `postcss` flagged for build-time source-map/stringify
   issues; Warden processes only first-party CSS at build, so it is not attacker-reachable at
   runtime. It clears when Next ships the patched transitive version.

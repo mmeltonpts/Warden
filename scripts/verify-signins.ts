@@ -46,8 +46,11 @@ async function main(): Promise<string> {
   let expired = 0;
 
   // ── SEND ────────────────────────────────────────────────────────────────────
+  // minScore 0 means "track the risk flag threshold" (what the setting's help promises);
+  // a positive value overrides it. Resolve once and use it for both the query and the gate.
+  const minScore = cfg.minScore > 0 ? cfg.minScore : s.riskFlagThreshold;
   const flags = await prisma.wardenRiskFlag.findMany({
-    where: { state: 'NEW', score: { gte: cfg.minScore }, mailbox: { endsWith: staffSuffix } },
+    where: { state: 'NEW', score: { gte: minScore }, mailbox: { endsWith: staffSuffix } },
     orderBy: { ts: 'desc' },
     take: 100
   });
@@ -55,7 +58,7 @@ async function main(): Promise<string> {
   for (const f of flags) {
     let reasons: string[] = [];
     try { reasons = JSON.parse(f.reasons) as string[]; } catch { reasons = []; }
-    if (!qualifiesForVerify({ score: f.score, reasons }, { minScore: cfg.minScore, onlyVpnOrForeign: cfg.onlyVpnOrForeign })) continue;
+    if (!qualifiesForVerify({ score: f.score, reasons }, { minScore, onlyVpnOrForeign: cfg.onlyVpnOrForeign })) continue;
 
     // Already handled this exact sign-in?
     if (await prisma.wardenSignInVerify.findFirst({ where: { mailbox: f.mailbox, signInTs: f.ts } })) continue;
