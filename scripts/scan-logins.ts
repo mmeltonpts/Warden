@@ -4,11 +4,13 @@
  * Read-only against Google. Writes only to Warden's own database.
  * Run manually:  sudo -u warden npx tsx scripts/scan-logins.ts
  */
+import { spawn } from 'node:child_process';
 import { PrismaClient } from '@prisma/client';
-import { runLoginScan } from '../src/lib/loginscan';
-import type { RawLoginEvent, Baseline } from '../src/lib/baseline';
+import { runLoginScan, nearestGrant } from '../src/lib/loginscan';
+import type { RawLoginEvent, Baseline, AppGrant } from '../src/lib/baseline';
 import { ipPrefix } from '../src/lib/baseline';
 import type { NetVerdict } from '../src/lib/baseline';
+import { MAIL_SCOPE } from '../src/lib/gam';
 import { lookupIp, classifyOrg, netKey } from '../src/lib/rdap';
 import { getSettings, notifyRecipients } from '../src/lib/settings';
 import { sendMail, riskDigest, scanFailure } from '../src/lib/mailer';
@@ -79,6 +81,32 @@ export async function run(opts: { days?: number } = {}) {
     return { klass: owner?.klass ?? 'unknown', org: owner?.org ?? null, cc: owner?.cc ?? null, onDistrictNetwork };
   }
 
+  /**
+   * Resolve the OAuth app a sign-in's "app access" sensitive action authorized, from the
+   * token audit log. The authorize can log a few seconds after the sign-in and the log is
+   * eventually consistent, so look in a ±10-minute window and keep the authorize NEAREST the
+   * event — a window that also contains Warden's own GAM service grant from a later account
+   * check is disambiguated by time. Read-only; any failure returns null and the flag then
+   * says "could not resolve" rather than inventing an answer.
+   */
+  async function resolveGrant(mailbox: string, around: Date): Promise<AppGrant | null> {
+    const start = new Date(around.getTime() - 10 * 60_000).toISOString();
+    const end = new Date(around.getTime() + 10 * 60_000).toISOString();
+    const csv = await new Promise<string>((resolve) => {
+      let out = '';
+      // stderr is explicitly ignored, never left as an unread pipe that GAM could block on.
+      const child = spawn(
+        settings.gamPath,
+        ['report', 'token', 'user', mailbox, 'start', start, 'end', end, 'event', 'authorize'],
+        { stdio: ['ignore', 'pipe', 'ignore'] }
+      );
+      child.stdout.on('data', (d) => (out += d));
+      child.on('error', () => resolve(''));
+      child.on('close', () => resolve(out));
+    });
+    return nearestGrant(csv, around, MAIL_SCOPE);
+  }
+
   const run = await prisma.wardenScanRun.create({
     data: { windowStart: new Date(), windowEnd: new Date() }
   });
@@ -88,6 +116,7 @@ export async function run(opts: { days?: number } = {}) {
       {
         gamPath: settings.gamPath,
         classifyIp,
+        resolveGrant,
         flagThreshold: settings.riskFlagThreshold,
         lookbackHours: settings.scanLookbackHours,
         baselineWindowDays: settings.baselineWindowDays,

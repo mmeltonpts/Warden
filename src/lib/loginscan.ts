@@ -21,9 +21,11 @@ import {
   buildBaseline,
   assessRisk,
   ipPrefix,
+  APP_ACCESS,
   type RawLoginEvent,
   type Baseline,
-  type NetVerdict
+  type NetVerdict,
+  type AppGrant
 } from './baseline';
 
 /**
@@ -68,6 +70,14 @@ export interface ScanDeps {
    * Implementations must be cached — this is called once per scored event.
    */
   classifyIp?: (ip: string | null | undefined) => Promise<NetVerdict | null>;
+  /**
+   * Resolve the OAuth app authorized during a sign-in's "app access" sensitive action, from
+   * the token audit log, so a benign identity consent can say so and a mail-capable grant
+   * can score. Called ONLY for the rare events that carry that sensitive action, so it costs
+   * nothing on an ordinary sign-in. Best-effort: a slow or failed lookup degrades to "could
+   * not resolve", it never fails the scan.
+   */
+  resolveGrant?: (mailbox: string, around: Date) => Promise<AppGrant | null>;
   /** Settings → Sign-in risk. Undefined falls back to the built-in FLAG_THRESHOLD. */
   flagThreshold?: number;
   /** Settings → Sign-in risk. How far back each scan looks for new events. */
@@ -174,6 +184,37 @@ export function parseCsvLine(line: string): string[] {
   return out;
 }
 
+/**
+ * Pick the OAuth app authorized NEAREST a sign-in from a `gam report token ... event
+ * authorize` CSV. Pure, so the column-indexing and mail-scope logic is tested without GAM.
+ *
+ * Columns are found BY NAME, never by position — the token report's layout has drifted
+ * before. An empty or header-only CSV (a GAM that found nothing, or was killed) returns
+ * null, which the caller renders as "could not resolve", never as a benign answer — the
+ * empty-vs-failed trap that keeps biting this codebase. `mailScope` is injected so this file
+ * does not depend on gam.ts; the caller passes the one true MAIL_SCOPE regex.
+ */
+export function nearestGrant(csv: string, around: Date, mailScope: RegExp): AppGrant | null {
+  const lines = csv.split('\n').filter((l) => l.trim());
+  if (lines.length < 2) return null;
+  const header = parseCsvLine(lines[0]);
+  const iName = header.indexOf('app_name');
+  const iTime = header.indexOf('id.time');
+  const iScope = header.indexOf('scope');
+  if (iName < 0 || iScope < 0) return null;
+  let best: { name: string; mailAccess: boolean; dist: number } | null = null;
+  for (const line of lines.slice(1)) {
+    const f = parseCsvLine(line);
+    const name = f[iName] || '(unnamed app)';
+    const scopes = (f[iScope] || '').split(/\s+/).filter(Boolean);
+    const mailAccess = scopes.some((s) => mailScope.test(s));
+    const t = iTime >= 0 ? Date.parse(f[iTime]) : NaN;
+    const dist = Number.isNaN(t) ? Infinity : Math.abs(t - around.getTime());
+    if (!best || dist < best.dist) best = { name, mailAccess, dist };
+  }
+  return best ? { name: best.name, mailAccess: best.mailAccess } : null;
+}
+
 export interface ScanResult {
   windowStart: Date;
   windowEnd: Date;
@@ -264,13 +305,20 @@ export async function runLoginScan(
       // Best-effort. RDAP being slow or down must degrade the score's precision, never
       // fail the scan — the ASN fallback still catches real hosting.
       const net = deps.classifyIp ? await deps.classifyIp(e.ip).catch(() => null) : null;
+      // Only an "app access" sensitive action pays for a token-log lookup; every other
+      // sign-in skips it. Best-effort — a failure degrades the reason text, not the scan.
+      const grant =
+        deps.resolveGrant && e.sensitive && APP_ACCESS.test(e.sensitive)
+          ? await deps.resolveGrant(e.mailbox, e.ts).catch(() => null)
+          : null;
       const { score, reasons, flag } = assessRisk(
         e,
         priorBaseline,
         windowEvents,
         net,
         deps.flagThreshold,
-        deps.homeCountries
+        deps.homeCountries,
+        grant
       );
       if (flag) {
         flaggedThisMailbox.push({

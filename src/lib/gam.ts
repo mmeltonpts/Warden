@@ -588,7 +588,7 @@ export interface AccountCheckReport {
   apps: OAuthApp[];
 }
 
-const MAIL_SCOPE =
+export const MAIL_SCOPE =
   /^https:\/\/(?:mail\.google\.com\/?|www\.googleapis\.com\/auth\/gmail\.(?:modify|settings\.basic|settings\.sharing|compose|send|insert|labels))/;
 
 function blockOf(blob: string, name: string): { body: string; exit: number; timedOut: boolean } | null {

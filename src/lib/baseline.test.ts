@@ -171,6 +171,69 @@ describe('real noise — must NOT flag', () => {
   });
 });
 
+/**
+ * The receipts behind a clean verdict: an "app access" sensitive action is resolved to the
+ * actual app, so a benign identity consent SAYS it is benign (Adobe Acrobat "sign in with
+ * Google") and a mail-capable grant scores like the token-takeover path it is — but, like
+ * filter creation, not on its own, because a native mail client legitimately holds a mail
+ * scope. The motivating case: a WARP sign-in paired with an identity-only "sign in with
+ * Google" consent to a PDF reader app, which looked alarming but granted no mail access.
+ */
+describe('OAuth app grants resolved at sign-in', () => {
+  it('an identity-only app is surfaced as benign and does not score', () => {
+    const mailbox = 'consent.user@example.edu';
+    const baseline = buildBaseline(mailbox, normalHistory(mailbox));
+    const r = assessRisk(
+      { mailbox, ts: at('2026-10-05T16:26:22Z'), eventName: 'login_success',
+        ip: '50.102.9.94', asn: '5650', geo: 'US-IN', challenge: 'none', suspicious: false,
+        sensitive: 'Allowing an app access to Google data' },
+      baseline, [], null, FLAG_THRESHOLD, ['US'],
+      { name: 'Adobe Acrobat Reader for PDF', mailAccess: false }
+    );
+    expect(r.flag).toBe(false);
+    expect(r.reasons.some((x) => /Adobe Acrobat Reader for PDF.*sign-in\/identity only/.test(x))).toBe(true);
+  });
+
+  it('a mail-capable grant scores and flags once a single other signal corroborates it', () => {
+    const mailbox = 'victim@example.edu';
+    const baseline = buildBaseline(mailbox, normalHistory(mailbox));
+    const r = assessRisk(
+      { mailbox, ts: at('2026-10-05T16:26:22Z'), eventName: 'login_success',
+        ip: '198.51.100.7', asn: '174', geo: 'US-IN', challenge: 'reauth', suspicious: true,
+        sensitive: 'Allowing an app access to Google data' },
+      baseline, [], null, FLAG_THRESHOLD, ['US'],
+      { name: 'Totally Legit Mailer', mailAccess: true }
+    );
+    expect(r.flag).toBe(true);
+    expect(r.reasons.some((x) => /mail access.*Totally Legit Mailer/i.test(x))).toBe(true);
+  });
+
+  it('a mail-capable grant does NOT flag on its own — a native mail client (Outlook) is normal', () => {
+    const mailbox = 'outlook.user@example.edu';
+    const baseline = buildBaseline(mailbox, normalHistory(mailbox));
+    const r = assessRisk(
+      { mailbox, ts: at('2026-10-05T16:26:22Z'), eventName: 'login_success',
+        ip: '50.102.9.94', asn: '5650', geo: 'US-IN', challenge: 'none', suspicious: false,
+        sensitive: 'Allowing an app access to Google data' },
+      baseline, [], null, FLAG_THRESHOLD, ['US'],
+      { name: 'Microsoft Outlook', mailAccess: true }
+    );
+    expect(r.flag).toBe(false); // +45 only, below the 50 threshold without corroboration
+  });
+
+  it('with no grant resolved, the flag says so rather than inventing an app', () => {
+    const mailbox = 'unknown.grant@example.edu';
+    const baseline = buildBaseline(mailbox, normalHistory(mailbox));
+    const r = assessRisk(
+      { mailbox, ts: at('2026-10-05T16:26:22Z'), eventName: 'login_success',
+        ip: '198.51.100.7', asn: '174', geo: 'US-IN', challenge: 'reauth', suspicious: true,
+        sensitive: 'Allowing an app access to Google data' },
+      baseline, [], null, FLAG_THRESHOLD, ['US'], null
+    );
+    expect(r.reasons.some((x) => /could not resolve which app/.test(x))).toBe(true);
+  });
+});
+
 describe('ambiguous cases keep the human in the loop', () => {
   it('carrier.user: AT&T IPv6 geolocating to Texas is surfaced, not auto-condemned', () => {
     // District login at 19:19, "Texas" at 19:21. Physically impossible, but AS7018 is

@@ -476,17 +476,21 @@ export default async function JobPage({
           </table>
 
           {acReport.apps.length > 0 && (
-            <details className="text-sm">
+            /* Open by default: a "clean" verdict must SHOW what was checked, not ask the
+               operator to take it on faith behind a toggle. This is the list that lets
+               "Adobe Acrobat — sign-in only" read as obviously different from a grant that
+               can touch mail. It stays a <details> so a long list can still be folded away. */
+            <details open className="text-sm">
               <summary className="cursor-pointer text-xs text-text-muted">
-                All {acReport.apps.length} connected app{acReport.apps.length === 1 ? '' : 's'} (OAuth)
+                All {acReport.apps.length} connected app{acReport.apps.length === 1 ? '' : 's'} (OAuth) — what each one can do
               </summary>
               <table className="mt-2 w-full border-collapse text-xs">
-                <thead><tr className="border-b text-left"><th className="th">App</th><th className="th">Mail?</th><th className="th">Scopes</th></tr></thead>
+                <thead><tr className="border-b text-left"><th className="th">App</th><th className="th w-24">Access</th><th className="th">Scopes</th></tr></thead>
                 <tbody>
                   {acReport.apps.map((a, i) => (
                     <tr key={i} className="border-b align-top">
                       <td className="td">{a.name}</td>
-                      <td className="td">{a.mailAccess ? <span className="pill pill-high">mail</span> : <span className="text-text-muted">—</span>}</td>
+                      <td className="td">{a.mailAccess ? <span className="pill pill-high">mail</span> : <span className="text-text-muted">sign-in only</span>}</td>
                       <td className="td mono text-text-muted">{a.scopes.join('  ')}</td>
                     </tr>
                   ))}

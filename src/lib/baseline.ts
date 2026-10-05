@@ -89,6 +89,12 @@ const DATACENTER_ASNS = new Set([
 const RELAYABLE = /(idv_preregistered_phone|device_prompt|idv_|sms|prompt)/i;
 /** Challenge methods that cannot. */
 const PHISHING_RESISTANT = /(passkey|security_key|fido|webauthn)/i;
+/**
+ * Google's label for the OAuth-consent risky action — "Allowing an app access to Google
+ * data". Routine ed-tech consent 30 times out of 31; what the grant can DO is the signal,
+ * not the consent, so the scanner resolves the app and passes it in as `grant`.
+ */
+export const APP_ACCESS = /app access|access to google data/i;
 
 export function buildBaseline(mailbox: string, events: RawLoginEvent[]): Baseline {
   const prefixCount = new Map<string, number>();
@@ -157,6 +163,18 @@ export interface NetVerdict {
   cc?: string | null;
 }
 
+/**
+ * The OAuth app authorized during a sign-in's "Allowing an app access to Google data"
+ * action, resolved from the token audit log by the scanner (assessRisk itself does no I/O).
+ * `mailAccess` is true when any granted scope can read or change Gmail — the token-takeover
+ * path a password reset does not revoke. Lets a benign identity consent say it is benign,
+ * and a mail-capable grant score like the persistence it is.
+ */
+export interface AppGrant {
+  name: string;
+  mailAccess: boolean;
+}
+
 export const FLAG_THRESHOLD = 50;
 
 /**
@@ -179,7 +197,14 @@ export function assessRisk(
    */
   threshold: number = FLAG_THRESHOLD,
   /** Settings → Sign-in risk → Home countries. ISO 3166 alpha-2, upper case. */
-  homeCountries: string[] = ['US']
+  homeCountries: string[] = ['US'],
+  /**
+   * The app authorized during this sign-in's "app access" sensitive action, resolved from
+   * the token log by the scanner. Lets a benign identity consent SAY it is benign (so a
+   * flag raised for other reasons shows the grant was not the problem), and a mail-capable
+   * grant score like the takeover path it is. Absent for every non-app-access event.
+   */
+  grant?: AppGrant | null
 ): RiskAssessment {
   const reasons: string[] = [];
   let score = 0;
@@ -338,6 +363,27 @@ export function assessRisk(
   if (event.sensitive && /filter/i.test(event.sensitive)) {
     score += 45;
     reasons.push(`Sensitive Gmail action at sign-in: ${event.sensitive}`);
+  } else if (event.sensitive && APP_ACCESS.test(event.sensitive)) {
+    // "Allowing an app access to Google data" is routine ed-tech OAuth consent (30 of 31).
+    // The consent is not the signal — what was granted is. An identity-only app ("sign in
+    // with Google") is benign, and saying so is what lets a flag raised for other reasons
+    // show plainly that the app grant was not the problem. A grant that can read or change
+    // mail is the token-takeover path a password reset does not revoke, so it scores — but
+    // like filter creation, not on its own: a native mail client (Outlook, Apple Mail)
+    // legitimately holds a mail scope, and flagging every one of those is how a queue dies.
+    if (grant?.mailAccess) {
+      score += 45;
+      reasons.push(
+        `App granted mail access at this sign-in: ${grant.name} — can read or change mail ` +
+          '(a mail client like Outlook is normal; an unfamiliar name is not)'
+      );
+    } else if (grant) {
+      reasons.push(
+        `App granted access at this sign-in: ${grant.name} — sign-in/identity only, no mail access`
+      );
+    } else {
+      reasons.push('An app was granted access at this sign-in — could not resolve which app from the token log');
+    }
   }
 
   // ── impossible travel ───────────────────────────────────────────────────────

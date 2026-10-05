@@ -156,7 +156,14 @@ next state. Surface these for a phone call; never auto-remediate on them.
 
 **`Allowing an app access to Google data` is routine OAuth consent** — 30 of 31 risky-action
 events. Only `Access sensitive Gmail action (…filters…)` mattered, and it fired exactly once,
-on the one account genuinely taken over.
+on the one account genuinely taken over. **The consent is not the signal; what it grants is.**
+The scanner resolves the app from the token log (`resolveGrant`) and passes it to
+`assessRisk` as `grant`: an identity-only app ("sign in with Google") is surfaced as benign
+so a flag raised for other reasons shows plainly the grant was not the problem, while a
+grant that can read or change mail scores like filter creation (+45, review-framed — a
+native mail client like Outlook legitimately holds a mail scope, so it corroborates, it
+does not flag alone). This is also why a mail-focused sweep can read clean over a real
+token takeover: the persistence is the OAuth grant, not anything in the mailbox.
 
 ## Codebase rules
 
