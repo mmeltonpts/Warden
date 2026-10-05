@@ -15,6 +15,7 @@ import { PrismaClient } from '@prisma/client';
 import { spawn } from 'node:child_process';
 import { getSettings } from '../src/lib/settings';
 import { parseReportBody, isKnownGood, campaignKey, reportQuery, dedupeKey } from '../src/lib/reports';
+import { gamCompleted } from '../src/lib/gam';
 
 const prisma = new PrismaClient();
 
@@ -30,19 +31,29 @@ const BODY_CAP = 64_000;
  * waiting for stdout that will never come. Observed 2026-09-23: 21 minutes wall-clock,
  * 8 seconds of CPU, state S. It looks exactly like a slow scan and is in fact a deadlock.
  *
- * 'inherit' drains it by handing GAM this process's own stderr, which also puts the scan
- * progress in the log where it is useful.
+ * Both streams are piped and drained into buffers, which avoids that deadlock AND lets the
+ * caller see the exit code and stderr. The exit code is the whole point: a scan that GAM
+ * aborted returns the same "0 rows" as a genuinely empty mailbox, and the report ingest used
+ * to call both "no reports found". stderr is echoed to this process so the scan progress still
+ * shows in the scheduler log.
  */
-function gam(gamPath: string, args: string[], timeoutMs = 1_800_000): Promise<string> {
+function gam(
+  gamPath: string,
+  args: string[],
+  timeoutMs = 1_800_000
+): Promise<{ out: string; stderr: string; code: number; timedOut: boolean }> {
   return new Promise((resolve) => {
     let out = '';
-    const c = spawn(gamPath, args, { stdio: ['ignore', 'pipe', 'inherit'] });
-    const t = setTimeout(() => c.kill('SIGKILL'), timeoutMs);
+    let err = '';
+    let timedOut = false;
+    const c = spawn(gamPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const t = setTimeout(() => { timedOut = true; c.kill('SIGKILL'); }, timeoutMs);
     c.stdout.on('data', (d) => (out += d));
-    c.on('error', () => resolve(out));
-    c.on('close', () => {
+    c.stderr.on('data', (d) => { err += d; process.stderr.write(d); });
+    c.on('error', () => resolve({ out, stderr: err, code: -1, timedOut }));
+    c.on('close', (code) => {
       clearTimeout(t);
-      resolve(out);
+      resolve({ out, stderr: err, code: code ?? -1, timedOut });
     });
   });
 }
@@ -93,12 +104,25 @@ export async function run(opts: { days?: number } = {}) {
   const query = reportQuery(addresses, days);
   console.log(`scanning ${s.domains.staff} (${days}d lookback) for: ${query}`);
 
-  const csv = await gam(s.gamPath, [
+  const scan = await gam(s.gamPath, [
     'domains_ns', s.domains.staff, 'print', 'messages',
     'query', query, 'headers', 'From,To,Subject,Date'
   ]);
 
-  const lines = csv.split(/\r?\n/).filter(Boolean);
+  // A scan that did not finish is NOT "no reports". GAM aborting (a disabled mailbox, a quota
+  // error, a timeout) returns the same zero rows as a genuinely quiet week, and the ingest used
+  // to print "no reports found" either way — the founding incident of this codebase, rebuilt in
+  // the one job whose silence means "nobody is being protected". Fail loudly instead, so the
+  // scheduler records lastOk=false and it shows as a failed ingest rather than an all-clear.
+  if (!gamCompleted(scan.code, scan.timedOut, scan.stderr)) {
+    throw new Error(
+      `report scan did not complete — GAM ${scan.timedOut ? 'timed out' : `exited ${scan.code}`}` +
+        `: ${scan.stderr.trim().split('\n').slice(-2).join(' ').slice(0, 300)}. ` +
+        'This is NOT "no reports" — the scan could not be read.'
+    );
+  }
+
+  const lines = scan.out.split(/\r?\n/).filter(Boolean);
   if (lines.length < 2) {
     console.log('no reports found');
     return { created: 0, backfilled: 0, suppressed: 0, skipped: 0, createdIds: [] as string[] };
@@ -127,10 +151,12 @@ export async function run(opts: { days?: number } = {}) {
       continue;
     }
 
-    // The expensive call. Only for reports we have no body for.
-    const body = await gam(s.gamPath, [
+    // The expensive call. Only for reports we have no body for. Best-effort per message: a
+    // single body that will not fetch leaves that report without a body (re-fetched next run),
+    // which is a world apart from the whole scan silently returning nothing.
+    const body = (await gam(s.gamPath, [
       'user', mailbox, 'show', 'messages', 'ids', msgId, 'showbody'
-    ], 120_000);
+    ], 120_000)).out;
 
     const parsed = parseReportBody(body, mailbox, [s.domains.staff, s.domains.students].filter(Boolean));
     const kg = isKnownGood(parsed, knownGood);
