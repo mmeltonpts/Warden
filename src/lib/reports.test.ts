@@ -5,8 +5,23 @@ import {
   extractPayloadHosts,
   campaignKey,
   isKnownGood,
-  stripSubjectTags
+  stripSubjectTags,
+  shouldAlertQuiet
 } from './reports';
+
+describe('shouldAlertQuiet — report volume dropped off', () => {
+  it('does not alert while reports are still arriving', () => {
+    expect(shouldAlertQuiet({ recentCount: 1, baselineCount: 100, baselineDays: 21 })).toBe(false);
+  });
+  it('alerts when recent is zero but the baseline was steady', () => {
+    expect(shouldAlertQuiet({ recentCount: 0, baselineCount: 42, baselineDays: 21 })).toBe(true); // ~2/day
+    expect(shouldAlertQuiet({ recentCount: 0, baselineCount: 12, baselineDays: 21 })).toBe(true); // ~0.57/day
+  });
+  it('stays quiet for a new or low-traffic install (baseline too sparse)', () => {
+    expect(shouldAlertQuiet({ recentCount: 0, baselineCount: 5, baselineDays: 21 })).toBe(false); // < 10 total
+    expect(shouldAlertQuiet({ recentCount: 0, baselineCount: 0, baselineDays: 21 })).toBe(false);
+  });
+});
 
 /**
  * Regression: `to:` does not match a bare domain.

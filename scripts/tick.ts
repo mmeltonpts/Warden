@@ -24,7 +24,8 @@
  */
 import { PrismaClient } from '@prisma/client';
 import { getSettings, notifyRecipients } from '../src/lib/settings';
-import { sendMessage, reportDigest, alertDigest, type Severity } from '../src/lib/mailer';
+import { sendMessage, reportDigest, alertDigest, reportsQuietNotice, type Severity } from '../src/lib/mailer';
+import { shouldAlertQuiet } from '../src/lib/reports';
 import { errText } from '../src/lib/errors';
 import { isSetupComplete } from '../src/lib/setup';
 import { setDefaultTz } from '../src/lib/time';
@@ -230,6 +231,44 @@ async function runReports(): Promise<string> {
       throttleKey: `reports-${r.created}-${r.createdIds[0] ?? ''}`
     }).catch(() => undefined);
   }
+
+  // Quiet-volume watch: a misconfigured report address (a typo, a mailbox turned into a group)
+  // returns a CLEAN zero no error check catches. Warn when nothing has arrived recently but the
+  // district normally reports steadily. Once per day, DB-backed so the 30-min cadence does not
+  // re-send and a restart does not reset it.
+  const RECENT_DAYS = 3;
+  const BASELINE_DAYS = 21;
+  const now = Date.now();
+  const recentCount = await prisma.wardenReport.count({
+    where: { reportedAt: { gte: new Date(now - RECENT_DAYS * 86_400_000) } }
+  });
+  const baselineCount = await prisma.wardenReport.count({
+    where: {
+      reportedAt: {
+        gte: new Date(now - (RECENT_DAYS + BASELINE_DAYS) * 86_400_000),
+        lt: new Date(now - RECENT_DAYS * 86_400_000)
+      }
+    }
+  });
+  if (s.mail?.enabled && shouldAlertQuiet({ recentCount, baselineCount, baselineDays: BASELINE_DAYS })) {
+    const today = new Date().toISOString().slice(0, 10);
+    const last = await prisma.wardenSetting.findUnique({ where: { key: 'reports_quiet_last' } });
+    if (last?.value !== today) {
+      const res = await sendMessage(
+        s.mail,
+        await notifyRecipients(prisma),
+        reportsQuietNotice(s.reports.addresses, RECENT_DAYS, s.consoleUrl)
+      ).catch(() => ({ status: 'error' as const }));
+      if (res.status === 'sent') {
+        await prisma.wardenSetting.upsert({
+          where: { key: 'reports_quiet_last' },
+          create: { key: 'reports_quiet_last', value: today, updatedBy: 'reports-watch' },
+          update: { value: today, updatedBy: 'reports-watch' }
+        });
+      }
+    }
+  }
+
   return `${r.created} new, ${r.backfilled} backfilled, ${r.suppressed} known-good`;
 }
 

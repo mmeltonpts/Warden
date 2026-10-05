@@ -271,6 +271,29 @@ export function dedupeKey(
   return `${reporter.toLowerCase()}|${(sender ?? '').toLowerCase()}|${s}`;
 }
 
+/**
+ * Decide whether to warn that report ingestion has gone quiet.
+ *
+ * A misconfigured report address — a typo, a mailbox renamed to a group — produces a CLEAN
+ * zero that no error check catches: the scan succeeds and matches nothing. (This is exactly
+ * what happened on 2026-10-01: a misspelled report address, four days of "0 new" that read as
+ * calm.) So compare a recent window against a baseline: if nothing has arrived recently but the
+ * district normally reports steadily, the address is probably pointing at the wrong place.
+ *
+ * Guarded so a genuinely new or low-traffic install does not cry wolf: the baseline must show
+ * real, sustained reporting before silence is treated as a fault.
+ */
+export interface QuietCheck {
+  recentCount: number;
+  baselineCount: number;
+  baselineDays: number;
+}
+export function shouldAlertQuiet(c: QuietCheck): boolean {
+  if (c.recentCount > 0) return false;
+  const perDay = c.baselineDays > 0 ? c.baselineCount / c.baselineDays : 0;
+  return c.baselineCount >= 10 && perDay >= 0.5;
+}
+
 export function reportQuery(addresses: string[], lookbackDays: number): string {
   const terms = addresses
     .filter(Boolean)

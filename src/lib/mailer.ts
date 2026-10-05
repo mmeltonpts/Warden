@@ -537,6 +537,30 @@ export function scanFailure(error: string, baseUrl: string): Message {
   return { subject: 'Warden: scheduled sign-in scan FAILED', text, html };
 }
 
+export function reportsQuietNotice(addresses: string, recentDays: number, baseUrl: string): Message {
+  const { text, html } = render({
+    title: 'No phish reports are arriving',
+    lede:
+      `Nothing has landed in the report queue in ${recentDays} days, though this district ` +
+      'normally reports steadily. The scheduled scan is running fine — it is just matching nothing, ' +
+      'which usually means reports are no longer reaching where Warden looks.',
+    blocks: [
+      {
+        heading: 'Check, in order',
+        items: [
+          { title: 'The report address', meta: addresses || '(none set)', detail: 'Is it spelled correctly, and is it a real user mailbox (not a group or alias)?' },
+          { title: 'The Phish Alert Button', detail: 'Does it still forward to that address?' },
+          { title: 'Settings → Reports', detail: 'Confirm the address matches where staff actually forward.' }
+        ]
+      },
+      { note: 'This is a volume check, not an error — a genuinely quiet week will also trip it. Dismiss it if staff simply had nothing to report.' }
+    ],
+    cta: { label: 'Open reports', href: `${baseUrl}/reports` },
+    baseUrl
+  });
+  return { subject: 'Warden: no phish reports arriving — check the report address', text, html };
+}
+
 export function welcomeNotice(
   o: { email: string; displayName: string; role: string; invitedBy: string },
   baseUrl: string
