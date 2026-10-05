@@ -6,7 +6,7 @@
 # background jobs), and the one-off helpers `gam-setup`, `setup-token`, `seed-admin`.
 
 # ── build ─────────────────────────────────────────────────────────────────────
-FROM node:22-bookworm-slim AS build
+FROM node:26-bookworm-slim AS build
 WORKDIR /app
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends openssl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -18,7 +18,7 @@ RUN npx prisma generate \
     && npm prune --omit=dev --no-audit --no-fund
 
 # ── runtime ───────────────────────────────────────────────────────────────────
-FROM node:22-bookworm-slim
+FROM node:26-bookworm-slim
 ARG WARDEN_VERSION=dev
 LABEL org.opencontainers.image.title="Warden" \
       org.opencontainers.image.description="Phishing incident-response console for Google Workspace school districts" \
