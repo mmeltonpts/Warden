@@ -42,6 +42,31 @@ export function falconBase(cloud: string): string | null {
   return known ?? null;
 }
 
+/**
+ * The Falcon CONSOLE (UI) base for a cloud, derived from the API base: every cloud's console
+ * host is its API host with `api.` swapped for `falcon.` (api.crowdstrike.com →
+ * falcon.crowdstrike.com, api.laggar.gcw.crowdstrike.com → falcon.laggar.gcw.crowdstrike.com).
+ * Returns null for an unknown cloud, so a link is only ever built to a real CrowdStrike host.
+ */
+export function falconConsole(cloud: string): string | null {
+  const base = falconBase(cloud);
+  return base ? base.replace('://api.', '://falcon.') : null;
+}
+
+/**
+ * A read-only deep-link into the Falcon console for a host, so an analyst can jump straight
+ * to where Network Containment lives. Warden never contains a host itself — it requests only
+ * Alerts:Read and Hosts:Read — so this is a hand-off, not an action. Prefers the host-detail
+ * page by device id (where the Contain action is); null when neither cloud nor device is known.
+ */
+export function falconHostLink(cloud: string, deviceId?: string | null): string | null {
+  const console = falconConsole(cloud);
+  if (!console) return null;
+  return deviceId
+    ? `${console}/host-management/hosts/${encodeURIComponent(deviceId)}`
+    : `${console}/host-management/hosts-inventory`;
+}
+
 /** Falcon errors look like {"errors":[{"message":"…"}]}. Return the message, not the envelope. */
 async function falconError(r: Response): Promise<string> {
   const t = await r.text();
@@ -212,17 +237,20 @@ export async function falconClient(s: FalconSettings) {
 
     /** Containment state and last check-in, by hostname. */
     async devices(hostnames: string[]) {
-      const out = new Map<string, { status: string; lastSeen: string | null }>();
+      const out = new Map<string, { status: string; lastSeen: string | null; deviceId: string | null }>();
       for (const h of hostnames) {
         const q = await call<{ resources?: string[] }>(
           `/devices/queries/devices/v1?filter=${encodeURIComponent(`hostname:'${h.replace(/'/g, '')}'`)}`
         );
         if (!q.resources?.length) continue;
-        const d = await call<{ resources?: Array<{ status?: string; last_seen?: string }> }>(
+        const d = await call<{ resources?: Array<{ device_id?: string; status?: string; last_seen?: string }> }>(
           `/devices/entities/devices/v2?ids=${q.resources.map(encodeURIComponent).join('&ids=')}`
         );
         const x = (d.resources ?? []).sort((a, b) => String(b.last_seen).localeCompare(String(a.last_seen)))[0];
-        if (x) out.set(h, { status: x.status ?? 'unknown', lastSeen: x.last_seen ?? null });
+        // device_id drives the Falcon console deep-link (falconHostLink) so an analyst lands on
+        // the host where Network Containment lives. Fall back to the query id when the entity
+        // omits it.
+        if (x) out.set(h, { status: x.status ?? 'unknown', lastSeen: x.last_seen ?? null, deviceId: x.device_id ?? q.resources[0] ?? null });
       }
       return out;
     }

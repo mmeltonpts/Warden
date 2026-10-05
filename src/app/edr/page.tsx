@@ -6,7 +6,7 @@ import { prisma } from '@/lib/db';
 import { getSettings } from '@/lib/settings';
 import { freshnessFor } from '@/lib/freshness';
 import { IngestStatus } from '@/components/IngestStatus';
-import { falconClient } from '@/lib/crowdstrike';
+import { falconClient, falconHostLink } from '@/lib/crowdstrike';
 import { classify, isServiceUser, splitList, type ToolRow } from '@/lib/remote-tools';
 import { readToolSnapshot } from '@/lib/remote-tools-sync';
 import { Laptop, ShieldAlert } from 'lucide-react';
@@ -79,7 +79,7 @@ export default async function EdrPage({
     _count: { _all: true },
     _max: { createdAt: true, severity: true }
   });
-  let containment = new Map<string, { status: string; lastSeen: string | null }>();
+  let containment = new Map<string, { status: string; lastSeen: string | null; deviceId: string | null }>();
   let containmentError: string | null = null;
   if (hot.length && tab === 'action') {
     try {
@@ -261,6 +261,19 @@ export default async function EdrPage({
                     <td className="td text-xs">
                       {h._count._all} alert{h._count._all === 1 ? '' : 's'}, latest {h._max.createdAt ? t(h._max.createdAt) : ''}
                       {h.ioc && <div><span className="pill pill-critical">indicator {h.ioc}</span></div>}
+                    </td>
+                    <td className="td text-xs">
+                      {/* Read-only hand-off: jump to the host in Falcon, where Network
+                          Containment lives. Warden holds only Alerts:Read/Hosts:Read and never
+                          contains a host itself. */}
+                      {(() => {
+                        const link = falconHostLink(s.crowdstrike.cloud, c?.deviceId);
+                        return link ? (
+                          <a href={link} target="_blank" rel="noreferrer" className="underline" title="Opens the host in the Falcon console, where Network Containment lives. Warden never contains a host itself.">
+                            {contained ? 'View in Falcon ↗' : 'Contain in Falcon ↗'}
+                          </a>
+                        ) : null;
+                      })()}
                     </td>
                   </tr>
                 );
