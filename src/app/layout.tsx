@@ -23,16 +23,17 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const counts = user
     ? await (async () => {
         const canRespond = user.role === 'RESPONDER' || user.role === 'ADMIN';
-        const [reports, alerts, risk, quarantine, verify, grants] = await Promise.all([
+        const [reports, alerts, risk, quarantine, verify, grants, forwarding] = await Promise.all([
           prisma.wardenReport.count({ where: { state: 'NEW' } }),
           prisma.wardenAlert.count({ where: { state: 'NEW' } }),
           prisma.wardenRiskFlag.count({ where: { state: 'NEW' } }),
           user.role === 'ADMIN' ? prisma.wardenQuarantine.count({ where: { reviewedBy: null } }) : Promise.resolve(0),
           canRespond ? prisma.wardenStudentVpnNotice.count({ where: { state: 'QUEUED' } }) : Promise.resolve(0),
-          prisma.wardenGrantFlag.count({ where: { state: 'NEW' } })
+          prisma.wardenGrantFlag.count({ where: { state: 'NEW' } }),
+          prisma.wardenForwardItem.count({ where: { state: 'NEW', external: true } })
         ]);
         return {
-          '/reports': reports, '/alerts': alerts, '/risk': risk, '/grants': grants,
+          '/reports': reports, '/alerts': alerts, '/risk': risk, '/grants': grants, '/forwarding': forwarding,
           ...(user.role === 'ADMIN' ? { '/quarantine': quarantine } : {}),
           ...(canRespond ? { '/verify': verify } : {})
         };

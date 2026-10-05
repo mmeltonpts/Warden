@@ -426,6 +426,47 @@ export function grantDigest(
   return { subject, text, html };
 }
 
+/**
+ * New EXTERNAL forwards/forwarding-addresses/delegates found by the forwarding watch — the
+ * BEC/exfil persistence that survives a password reset.
+ */
+export function forwardDigest(
+  items: Array<{ mailbox: string; kind: string; target: string; reasons: string[] }>,
+  baseUrl: string
+): Message {
+  const one = items.length === 1;
+  const kindWord = items[0]?.kind === 'delegate' ? 'delegate' : 'forward';
+  const subject = one
+    ? `Warden: external ${kindWord} on ${items[0].mailbox.split('@')[0]}`
+    : `Warden: ${items.length} new external forwards/delegates`;
+
+  const { text, html } = render({
+    title: 'New external forwarding or delegates',
+    lede:
+      `${items.length} mailbox${one ? '' : 'es'} now forward mail or grant access OUTSIDE the ` +
+      'district — the mail-exfiltration shape.',
+    blocks: [
+      {
+        items: items.map((i) => ({
+          title: i.mailbox,
+          meta: `${i.kind} → ${i.target}`,
+          detail: i.reasons.join(' · '),
+          severity: 'critical' as const
+        }))
+      },
+      {
+        note:
+          'These survive a password reset. Remove the forward, forwarding address or delegate ' +
+          'in the Admin console or with GAM — the account-check panel removes them one-click. A ' +
+          'shared role mailbox or an assistant can be legitimate, so confirm before removing.'
+      }
+    ],
+    cta: { label: 'Open forwarding watch', href: `${baseUrl}/forwarding` },
+    baseUrl
+  });
+  return { subject, text, html };
+}
+
 /** New staff phish reports found by an ingest run. */
 export function reportDigest(
   o: {

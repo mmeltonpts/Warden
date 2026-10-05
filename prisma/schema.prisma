@@ -319,6 +319,37 @@ model WardenGrantFlag {
   @@index([mailbox])
 }
 
+enum WardenPersistKind {
+  forward
+  forwardingaddress
+  delegate
+}
+
+/// A forwarding address, active auto-forward, or delegate found on a mailbox by the scheduled
+/// forwarding watch. One row per (mailbox, kind, target), carried across runs so "new" can be
+/// told from "still there". `external` (destination outside the district) is the exfil signal;
+/// internal items are recorded but land BENIGN so they do not clutter the review queue.
+model WardenForwardItem {
+  id         String            @id @default(cuid())
+  mailbox    String
+  kind       WardenPersistKind
+  target     String
+  external   Boolean           @default(false)
+  detail     String?
+  reasons    String // JSON string[]
+  firstSeen  DateTime          @default(now())
+  lastSeen   DateTime          @default(now())
+  active     Boolean           @default(true)
+  state      WardenRiskState   @default(NEW)
+  notes      String?
+  reviewedBy String?
+  reviewedAt DateTime?
+
+  @@unique([mailbox, kind, target])
+  @@index([active, external])
+  @@index([state, external])
+}
+
 // ─── staff phish reports ─────────────────────────────────────────────────────
 //
 // 504 reports from 190 staff over 180 days went to a decommissioned PhishER tenant.

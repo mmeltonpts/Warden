@@ -40,6 +40,7 @@ export interface WardenSettings extends GamSettings {
     verifyMinutes: number;
     studentVpnMinutes: number;
     oauthGrantsMinutes: number;
+    forwardWatchMinutes: number;
     retentionMinutes: number;
   };
   retention: {
@@ -111,6 +112,11 @@ export interface WardenSettings extends GamSettings {
     notify: boolean;
     allowClientIds: string[];
     allowNames: string[];
+  };
+  forwardWatch: {
+    enabled: boolean;
+    scanStudents: boolean;
+    notify: boolean;
   };
   alerts: {
     enabled: boolean;
@@ -191,6 +197,9 @@ export const DEFAULTS: WardenSettings = {
     // Watches the Admin OAuth token log for new mail-capable grants. Off unless oauthWatch
     // is enabled; 60 min keeps it current — a grant is persistence, not a live-seconds race.
     oauthGrantsMinutes: 60,
+    // Tenant-wide forwarding/delegate audit. Heavy (one GAM pass over every mailbox), so it
+    // runs daily by default and only when forwardWatch is enabled.
+    forwardWatchMinutes: 1440,
     // How often the PII retention prune runs. Daily is ample; it does nothing unless a
     // retention period below is set.
     retentionMinutes: 1440
@@ -257,6 +266,16 @@ export const DEFAULTS: WardenSettings = {
       'Apple', 'iOS', 'macOS', 'Mac OS', 'Thunderbird', 'Microsoft Outlook', 'Outlook',
       'Mimestream', 'Spark', 'Mailspring', 'eM Client', 'Airmail'
     ]
+  },
+  forwardWatch: {
+    // A scheduled tenant-wide audit of auto-forwarding, registered forwarding addresses and
+    // delegates — the BEC persistence that survives a password reset. Off by default: it is a
+    // heavy GAM pass over every mailbox. An EXTERNAL destination (outside the district) is the
+    // exfil signal and lands in the review queue; internal items are recorded but not alarmed.
+    enabled: false,
+    // Staff only by default. Students add ~6,000 mailboxes to an already heavy pass.
+    scanStudents: false,
+    notify: true
   },
   signinVerify: {
     // A "was this you?" email to staff after a risky VPN or foreign sign-in. Off until a
@@ -584,6 +603,13 @@ export const FIELDS = [
   { section: 'OAuth grants', key: 'oauthWatch.allowNames', label: 'Allowed app names (substring)', type: 'list',
     help: 'One per line, case-insensitive substring match. A convenience only — an app can rename itself, so a name match is triage help, never proof. Seeded with common mail clients.' },
   { section: 'OAuth grants', key: 'oauthWatch.notify', label: 'Email when a new mail-capable grant is flagged', type: 'boolean' },
+  { section: 'Schedule', key: 'schedule.forwardWatchMinutes', label: 'Audit forwarding & delegates every (minutes)', type: 'number',
+    help: 'A heavy GAM pass over every mailbox, so daily (1440) is sensible. 0 disables (so does turning the watch off).' },
+  { section: 'Forwarding watch', key: 'forwardWatch.enabled', label: 'Audit mailboxes for forwarding and delegates', type: 'boolean',
+    help: 'Scheduled tenant-wide check for auto-forwarding, registered forwarding addresses and delegates — the BEC persistence that survives a password reset. A destination OUTSIDE the district is flagged for review; internal ones are recorded but not alarmed. Heavy: it reads every mailbox, so it runs on the cadence above.' },
+  { section: 'Forwarding watch', key: 'forwardWatch.scanStudents', label: 'Include student mailboxes', type: 'boolean',
+    help: 'Off by default — students add ~6,000 mailboxes to an already heavy pass.' },
+  { section: 'Forwarding watch', key: 'forwardWatch.notify', label: 'Email when a new external forward or delegate appears', type: 'boolean' },
   { section: 'Verify', key: 'signinVerify.enabled', label: 'Email staff to verify risky sign-ins', type: 'boolean',
     help: 'After a sign-in Warden rates risky (a VPN or a foreign address Google flagged), email the person to ask whether it was them. A reply of NO, or the email being deleted or filtered within minutes, raises an alarm. A reply of YES lowers the score. Warden never suspends anyone — this puts a human in the loop. Needs a reply mailbox below and email notifications switched on.' },
   { section: 'Verify', key: 'signinVerify.replyMailbox', label: 'Reply mailbox', type: 'text',

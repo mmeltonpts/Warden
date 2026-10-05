@@ -30,6 +30,7 @@ const PREFERRED = [
   'Quarantine',
   'Hunt',
   'OAuth grants',
+  'Forwarding watch',
   'Threat feeds',
   'Data retention',
   'KnowBe4',
@@ -47,7 +48,7 @@ export const SECTIONS: string[] = (() => {
 })();
 
 /** Integrations a district may not have. The wizard offers "Skip" on these. */
-export const OPTIONAL_SECTIONS = new Set(['Threat feeds', 'KnowBe4', 'CrowdStrike', 'Claude', 'Verify', 'Student notices', 'OAuth grants']);
+export const OPTIONAL_SECTIONS = new Set(['Threat feeds', 'KnowBe4', 'CrowdStrike', 'Claude', 'Verify', 'Student notices', 'OAuth grants', 'Forwarding watch']);
 
 export const BLURB: Record<string, string> = {
   General: 'How people reach this console.',
@@ -76,6 +77,8 @@ export const BLURB: Record<string, string> = {
     'Retroactive search for indicators learned after the fact. Read-only — it never deletes. A sender indicator is only searched near the date it was first seen, because a compromised account is the real person either side of that window.',
   'OAuth grants':
     'Optional, read-only. Watches the Admin token log for new apps granted access that can read or change mail — the token-takeover persistence a password reset does not revoke and a mailbox sweep cannot see. Default-deny by client ID: allow-list the mail clients your staff use once, and a grant to anything else is flagged.',
+  'Forwarding watch':
+    'Optional, read-only. A scheduled tenant-wide audit of auto-forwarding, registered forwarding addresses and delegates — the BEC persistence that survives a password reset. The account check finds these on one mailbox on demand; this watches every mailbox, so forwarding set without a risky sign-in is still caught. A destination outside the district is the exfil signal.',
   CrowdStrike:
     'Optional, read-only. Endpoint detections from Falcon — the attacks mail filtering never sees, like a pasted PowerShell installing remote-access software.',
   KnowBe4:

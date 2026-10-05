@@ -3,7 +3,7 @@
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import {
-  ShieldAlert, Search, ListChecks, UserSearch, ScrollText, Settings, LogOut, Users, Inbox, GraduationCap, Siren, ShieldBan, Laptop, MailCheck, KeyRound
+  ShieldAlert, Search, ListChecks, UserSearch, ScrollText, Settings, LogOut, Users, Inbox, GraduationCap, Siren, ShieldBan, Laptop, MailCheck, KeyRound, Forward
 } from 'lucide-react';
 
 const ITEMS = [
@@ -12,6 +12,7 @@ const ITEMS = [
   { href: '/alerts', label: 'Alerts', icon: Siren, min: 'ANALYST' },
   { href: '/edr', label: 'Endpoints', icon: Laptop, min: 'RESPONDER' },
   { href: '/grants', label: 'OAuth grants', icon: KeyRound, min: 'ANALYST' },
+  { href: '/forwarding', label: 'Forwarding', icon: Forward, min: 'ANALYST' },
   { href: '/verify', label: 'Verify', icon: MailCheck, min: 'RESPONDER' },
   { href: '/quarantine', label: 'Quarantine', icon: ShieldBan, min: 'ADMIN' },
   { href: '/scope', label: 'Scope', icon: Search, min: 'ANALYST' },

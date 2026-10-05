@@ -32,7 +32,7 @@ import { setDefaultTz } from '../src/lib/time';
 
 const prisma = new PrismaClient();
 
-type JobKey = 'alerts' | 'reports' | 'loginscan' | 'knowbe4' | 'feeds' | 'hunt' | 'quarantine' | 'falcon' | 'verify' | 'studentvpn' | 'oauthgrants' | 'prunepii';
+type JobKey = 'alerts' | 'reports' | 'loginscan' | 'knowbe4' | 'feeds' | 'hunt' | 'quarantine' | 'falcon' | 'verify' | 'studentvpn' | 'oauthgrants' | 'forwardwatch' | 'prunepii';
 
 const FORCE = process.argv.includes('--force');
 const ONLY = (() => {
@@ -106,6 +106,7 @@ async function main() {
     { key: 'verify', every: sch.verifyMinutes ?? 0, run: runVerify },
     { key: 'studentvpn', every: sch.studentVpnMinutes ?? 0, run: runStudentVpn },
     { key: 'oauthgrants', every: sch.oauthGrantsMinutes ?? 0, run: runOAuthGrants },
+    { key: 'forwardwatch', every: sch.forwardWatchMinutes ?? 0, run: runForwardWatch },
     { key: 'prunepii', every: sch.retentionMinutes ?? 1440, run: runPrunePii }
   ];
 
@@ -310,6 +311,11 @@ async function runStudentVpn(): Promise<string> {
 
 async function runOAuthGrants(): Promise<string> {
   const { run } = await import('./scan-oauth-grants');
+  return summarise(await run());
+}
+
+async function runForwardWatch(): Promise<string> {
+  const { run } = await import('./scan-forwarding');
   return summarise(await run());
 }
 
