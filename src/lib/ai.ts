@@ -34,6 +34,24 @@ export interface AiSettings {
   timeoutSeconds: number;
 }
 
+/**
+ * The only program the AI command may launch. `ai.command` is spawned directly (no shell),
+ * so an admin who could set an arbitrary binary — `/bin/sh`, `curl`, anything — would have
+ * code execution as the `warden` user, which reaches the GAM service-account key. The flags
+ * stay configurable so the CLI can be tuned; the program does not. This closes the one place
+ * a stolen or malicious ADMIN session could turn a setting into host code execution.
+ */
+export const AI_ALLOWED_BINARY = 'claude';
+export function aiCommandReason(command: string[] | undefined): string | null {
+  const bin = String(command?.[0] ?? '').trim();
+  if (!bin) return 'No AI command is set.';
+  const base = bin.replace(/\\/g, '/').split('/').pop() ?? bin;
+  if (base !== AI_ALLOWED_BINARY) {
+    return `AI command must run the Claude CLI ("${AI_ALLOWED_BINARY}"), not "${base}". The flags are configurable; the program is not.`;
+  }
+  return null;
+}
+
 /** One at a time. See note above. */
 let chain: Promise<unknown> = Promise.resolve();
 function serialise<T>(fn: () => Promise<T>): Promise<T> {
@@ -44,6 +62,10 @@ function serialise<T>(fn: () => Promise<T>): Promise<T> {
 
 async function invoke(settings: AiSettings, prompt: string): Promise<AiResult<string>> {
   if (!settings.enabled) return { status: 'disabled' };
+
+  // The program is allow-listed (see AI_ALLOWED_BINARY). A disallowed binary never spawns.
+  const reason = aiCommandReason(settings.command);
+  if (reason) return { status: 'unavailable', error: reason };
 
   const [bin, ...rest] = settings.command;
   const args = rest.map((a) => a.replace('{prompt}', prompt));

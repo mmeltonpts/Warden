@@ -374,7 +374,7 @@ export const FIELDS = [
   { section: 'General', key: 'timezone', label: 'Display time zone', type: 'text',
     help: 'An IANA time-zone name (e.g. America/Chicago, America/New_York) used to show every timestamp in the console and in notification emails. Stored times are always UTC; this only changes how they are shown. Leave blank to use the server’s own time zone. Takes effect after the next restart.' },
   { section: 'Google Workspace', key: 'gamPath', label: 'GAM binary path', type: 'text', sensitive: true,
-    help: 'Executed for every scope, sweep and scan. Encrypted at rest.' },
+    help: 'Executed for every scope, sweep and scan. Encrypted at rest. Must be an absolute path (e.g. /opt/gam7/gam) and is rejected if it points under a temporary or user-writable location, so a changed setting cannot repoint it at an arbitrary program.' },
   { section: 'Google Workspace', key: 'domains.staff', label: 'Staff domain', type: 'text', required: true,
     help: 'The primary Google Workspace domain staff mailboxes live in, e.g. example.org. Scopes, sweeps and sign-in scans act on this domain.' },
   { section: 'Google Workspace', key: 'domains.students', label: 'Student domain', type: 'text',
@@ -405,7 +405,7 @@ export const FIELDS = [
     help: 'Optional. Degrades to manual when the CLI session expires.' },
   { section: 'Claude', key: 'ai.timeoutSeconds', label: 'Claude timeout (seconds)', type: 'number' },
   { section: 'Claude', key: 'ai.command', label: 'CLI command', type: 'list',
-    help: 'One argument per line; {prompt} is replaced with the prompt. The default runs the Claude Code CLI signed in as the warden user (sudo -u warden -H claude, then /login) — no API key is stored here.' },
+    help: 'One argument per line; {prompt} is replaced with the prompt. The first line must be the Claude CLI ("claude") — the flags are configurable but the program is fixed, because this command is executed on the host. The default runs the Claude Code CLI signed in as the warden user (sudo -u warden -H claude, then /login) — no API key is stored here.' },
 
   { section: 'KnowBe4', key: 'knowbe4.enabled', label: 'KnowBe4 integration', type: 'boolean',
     help: 'Master switch. Off means neither direction runs.' },

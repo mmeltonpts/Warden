@@ -48,6 +48,31 @@ export class DestructiveDisabledError extends Error {
   }
 }
 
+/**
+ * gamPath is a setting, so a malicious or stolen ADMIN could repoint it at a program they
+ * control and get code execution as the warden user, which holds domain-wide delegation. This
+ * rejects a path that is relative, contains whitespace, or sits under a temporary or
+ * user-writable location, before GAM is ever spawned. It does NOT require a specific owner:
+ * the installer gives /opt/gam7 to the warden user so GAM can rewrite its own config, so an
+ * ownership rule would reject the legitimate binary. Pair it with keeping the binary out of
+ * writable locations, which the installer already does.
+ */
+const GAM_FORBIDDEN_PREFIXES = ['/tmp/', '/var/tmp/', '/dev/shm/', '/var/lib/warden/', '/home/'];
+export function gamPathReason(gamPath: string): string | null {
+  const p = String(gamPath ?? '').trim();
+  if (!p) return 'GAM path is not set — finish GAM setup, then set it in Settings.';
+  if (!p.startsWith('/')) return 'GAM path must be an absolute path.';
+  if (/\s/.test(p)) return 'GAM path must not contain whitespace.';
+  if (GAM_FORBIDDEN_PREFIXES.some((f) => p.startsWith(f))) {
+    return `GAM path must not be under a temporary or user-writable location (${p}).`;
+  }
+  return null;
+}
+export function assertGamPath(gamPath: string): void {
+  const r = gamPathReason(gamPath);
+  if (r) throw new Error(`Refusing to run GAM: ${r}`);
+}
+
 export interface GamSettings {
   gamPath: string;
   domains: Record<string, string>;
@@ -172,6 +197,7 @@ async function run(
   jobId: string,
   ext: string
 ): Promise<RunResult> {
+  assertGamPath(settings.gamPath); // never spawn an admin-repointed, unvetted binary
   await mkdir(LOG_DIR, { recursive: true });
   const logPath = path.join(LOG_DIR, `${jobId}.${ext}`);
   const errPath = path.join(LOG_DIR, `${jobId}.log`);
@@ -392,6 +418,7 @@ export async function labelSwept(
 ): Promise<{ ok: boolean; labelled: number; detail: string }> {
   const label = (settings.sweepWarningLabel ?? '').trim();
   if (!label || !mailboxes.length) return { ok: true, labelled: 0, detail: 'skipped' };
+  assertGamPath(settings.gamPath);
 
   const gam = (args: string[]) =>
     new Promise<{ out: string; code: number }>((resolve) => {
@@ -474,6 +501,7 @@ export async function runTrashSelected(
   items: TrashItem[]
 ): Promise<{ requested: number; trashed: number; mailboxes: number; failures: string[] }> {
   if (process.env.WARDEN_ALLOW_DESTRUCTIVE !== '1') throw new DestructiveDisabledError();
+  assertGamPath(settings.gamPath);
 
   const byBox = new Map<string, string[]>();
   for (const it of items) {

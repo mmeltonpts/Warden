@@ -20,7 +20,7 @@ import {
   runScope, runSweep, runVerify, parseSweepResult, assertSweepSafe,
   protectiveSuffix, ACCOUNT_CHECKS, flagsFromAccountCheck, parseAccountCheck,
   UnsafeQueryError, DestructiveDisabledError, LOG_DIR, labelSwept, sweptMailboxes,
-  runTrashSelected, type TrashItem
+  runTrashSelected, assertGamPath, type TrashItem
 } from './gam';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -331,6 +331,7 @@ async function doVerify(job: {
 
 async function doAccountCheck(job: { id: string; argsJson: string | null; operatorId: string }) {
   const s = await getSettings(prisma);
+  assertGamPath(s.gamPath); // same guard as scope/sweep — never spawn an unvetted binary
   const args = JSON.parse(job.argsJson ?? '{}');
   const user: string = args.user;
   let blob = '';

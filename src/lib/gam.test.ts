@@ -9,6 +9,7 @@ import {
   reachedEnd,
   trashIdsArgs,
   labelIdsArgs,
+  gamPathReason,
   type GamSettings
 } from './gam';
 
@@ -187,27 +188,45 @@ describe('sweptMailboxes', () => {
 
 describe('trashIdsArgs / labelIdsArgs (hand-picked containment)', () => {
   it('builds a trash-by-ids command for a valid mailbox and ids', () => {
-    expect(trashIdsArgs('maria@example.org', ['18ab', '19cd'])).toEqual([
-      'user', 'maria@example.org', 'trash', 'messages', 'ids', '18ab,19cd', 'doit'
+    expect(trashIdsArgs('alex@example.org', ['18ab', '19cd'])).toEqual([
+      'user', 'alex@example.org', 'trash', 'messages', 'ids', '18ab,19cd', 'doit'
     ]);
   });
 
   it('lower-cases the mailbox and drops ids with illegal characters', () => {
-    expect(trashIdsArgs('Maria@Example.ORG', ['ok_1', 'bad id', 'a,b', 'fine-2'])).toEqual([
-      'user', 'maria@example.org', 'trash', 'messages', 'ids', 'ok_1,fine-2', 'doit'
+    expect(trashIdsArgs('Alex@Example.ORG', ['ok_1', 'bad id', 'a,b', 'fine-2'])).toEqual([
+      'user', 'alex@example.org', 'trash', 'messages', 'ids', 'ok_1,fine-2', 'doit'
     ]);
   });
 
   it('returns null for a bad mailbox or when no id survives validation', () => {
     expect(trashIdsArgs('not-an-email', ['18ab'])).toBeNull();
-    expect(trashIdsArgs('maria@example.org', [])).toBeNull();
-    expect(trashIdsArgs('maria@example.org', ['', ' ', 'a b'])).toBeNull();
+    expect(trashIdsArgs('alex@example.org', [])).toBeNull();
+    expect(trashIdsArgs('alex@example.org', ['', ' ', 'a b'])).toBeNull();
   });
 
   it('builds a label-by-ids command and requires a non-empty label', () => {
-    expect(labelIdsArgs('maria@example.org', ['18ab'], '⚠ PHISHING')).toEqual([
-      'user', 'maria@example.org', 'modify', 'messages', 'ids', '18ab', 'addlabel', '⚠ PHISHING', 'doit'
+    expect(labelIdsArgs('alex@example.org', ['18ab'], '⚠ PHISHING')).toEqual([
+      'user', 'alex@example.org', 'modify', 'messages', 'ids', '18ab', 'addlabel', '⚠ PHISHING', 'doit'
     ]);
-    expect(labelIdsArgs('maria@example.org', ['18ab'], '   ')).toBeNull();
+    expect(labelIdsArgs('alex@example.org', ['18ab'], '   ')).toBeNull();
+  });
+});
+
+describe('gamPathReason (GAM binary path guard)', () => {
+  it('accepts a normal absolute install path', () => {
+    expect(gamPathReason('/opt/gam7/gam')).toBeNull();
+    expect(gamPathReason('/usr/local/bin/gam')).toBeNull();
+  });
+
+  it('rejects relative paths, whitespace, and temp/user-writable locations', () => {
+    expect(gamPathReason('gam')).toMatch(/absolute/);
+    expect(gamPathReason('relative/gam')).toMatch(/absolute/);
+    expect(gamPathReason('/tmp/evil')).toMatch(/temporary or user-writable/);
+    expect(gamPathReason('/var/tmp/x')).toMatch(/temporary or user-writable/);
+    expect(gamPathReason('/var/lib/warden/.gam/evil')).toMatch(/temporary or user-writable/);
+    expect(gamPathReason('/home/admin/gam')).toMatch(/temporary or user-writable/);
+    expect(gamPathReason('/opt/gam7/gam x')).toMatch(/whitespace/);
+    expect(gamPathReason('')).toMatch(/not set/);
   });
 });
