@@ -127,7 +127,9 @@ if gam_as user "$TEST" check serviceaccount >/tmp/warden-gam-check.$$ 2>&1 && ! 
   log "already authorised"
 else
   grep -E 'FAIL|PASS' /tmp/warden-gam-check.$$ | head -30 || true
-  URL="$(grep -oE 'https://admin\.google\.com/ac/owl/domainwidedelegation[^ ]*' /tmp/warden-gam-check.$$ | head -1 || true)"
+  # GAM 7.x prints its own shortener (gam-shortn.appspot.com) that redirects to the DWD page;
+  # older GAM printed the admin.google.com URL directly. Match either, newest form first.
+  URL="$(grep -oE 'https://(gam-shortn\.appspot\.com/[^ ]+|admin\.google\.com/ac/owl/domainwidedelegation[^ ]*)' /tmp/warden-gam-check.$$ | head -1 || true)"
   cat <<EOF
 
   The service account needs these scopes authorised in the Admin console. Open this link

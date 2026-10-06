@@ -38,6 +38,25 @@ function run(bin: string, args: string[], timeoutMs = 90_000): Promise<{ code: n
 const firstLines = (s: string, n = 4) => s.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, n).join(' · ');
 
 /**
+ * Pull the authorization link out of `gam ... check serviceaccount` output.
+ *
+ * GAM changed what it prints. Modern GAM (7.x) emits its own shortener,
+ * `https://gam-shortn.appspot.com/XXXXXX`, which redirects to the Admin console's
+ * Domain-wide Delegation page with the client ID and every scope pre-filled. Older GAM
+ * printed the `https://admin.google.com/ac/owl/domainwidedelegation?...` URL directly. The
+ * wizard only matched the old form, so on every district running current GAM the DWD step
+ * failed with NO clickable link — the operator was left to find the page by hand. Match
+ * either form. Returns undefined when neither is present (all scopes already authorised).
+ */
+export function extractDwdLink(out: string): string | undefined {
+  return (
+    out.match(
+      /https:\/\/(?:gam-shortn\.appspot\.com\/\S+|admin\.google\.com\/ac\/owl\/domainwidedelegation\S*)/
+    )?.[0] ?? undefined
+  );
+}
+
+/**
  * GAM, in the order setup has to happen: the binary runs, admin API access works, and the
  * service account's domain-wide delegation covers what Warden needs, checked against a
  * real mailbox.
@@ -70,7 +89,7 @@ export async function gamChecks(prisma: PrismaClient, testMailbox: string): Prom
     return out;
   }
   const c = await run(s.gamPath, ['user', testMailbox, 'check', 'serviceaccount'], 120_000);
-  const link = c.out.match(/https:\/\/admin\.google\.com\/ac\/owl\/domainwidedelegation\S*/)?.[0];
+  const link = extractDwdLink(c.out);
   const failed = c.code !== 0 || /\bFAIL\b/.test(c.out);
   out.push({
     name: `Domain-wide delegation (checked against ${testMailbox})`,

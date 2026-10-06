@@ -41,7 +41,9 @@ step "3/3  Domain-wide delegation"
 for i in 1 2 3 4 5 6 7; do
   OUT="$(gam_as user "$ADMIN" check serviceaccount 2>&1 || true)"
   if ! grep -q '\bFAIL\b' <<<"$OUT" && grep -q 'PASS' <<<"$OUT"; then ok "verified"; break; fi
-  URL="$(grep -oE 'https://admin\.google\.com/ac/owl/domainwidedelegation[^ ]*' <<<"$OUT" | head -1 || true)"
+  # GAM 7.x prints its own shortener (gam-shortn.appspot.com) that redirects to the DWD page;
+  # older GAM printed the admin.google.com URL directly. Match either, newest form first.
+  URL="$(grep -oE 'https://(gam-shortn\.appspot\.com/[^ ]+|admin\.google\.com/ac/owl/domainwidedelegation[^ ]*)' <<<"$OUT" | head -1 || true)"
   if [[ $i == 1 ]]; then
     echo "  Open this link signed in as a super admin and click AUTHORISE (it pre-fills every scope):"
     echo "    ${URL:-Admin console → Security → API controls → Manage Domain Wide Delegation}"
