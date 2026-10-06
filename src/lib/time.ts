@@ -14,12 +14,23 @@
 /**
  * Process-wide default zone, set once at startup from the `timezone` setting (see
  * instrumentation.ts and the scheduler), so the 30-odd render sites can call fmtTs(date)
- * without every one of them loading settings and threading a tz argument. A settings change
- * takes effect on the next restart, which is fine for something that changes ~never.
+ * without every one of them loading settings and threading a tz argument.
+ *
+ * Pinned on `globalThis`, NOT a module-level `let`: in the built app, `instrumentation.ts`
+ * and the page/route modules do not reliably share a module instance (the same cross-instance
+ * hazard CLAUDE.md flags for the job worker). A plain `let` set in instrumentation's copy was
+ * invisible to the render sites' copy, so every timestamp silently fell back to the host zone
+ * (UTC) no matter what the setting said. globalThis is the one binding both instances share.
+ * A settings change takes effect on the next restart, which is fine for something that
+ * changes ~never.
  */
-let DEFAULT_TZ: string | undefined;
+const TZ_KEY = '__wardenDefaultTz';
+type TzHolder = { [TZ_KEY]?: string };
 export function setDefaultTz(tz: string | undefined | null): void {
-  DEFAULT_TZ = tz ? String(tz).trim() || undefined : undefined;
+  (globalThis as TzHolder)[TZ_KEY] = tz ? String(tz).trim() || undefined : undefined;
+}
+function defaultTz(): string | undefined {
+  return (globalThis as TzHolder)[TZ_KEY];
 }
 
 type Mode = 'date' | 'datetime' | 'time';
@@ -31,7 +42,7 @@ function parts(d: Date, tz: string | undefined, mode: Mode): string {
     ...(wantDate ? { year: 'numeric', month: '2-digit', day: '2-digit' } : {}),
     ...(wantTime ? { hour: '2-digit', minute: '2-digit', hour12: false, timeZoneName: 'short' } : {})
   };
-  const zone = tz || DEFAULT_TZ || undefined;
+  const zone = tz || defaultTz() || undefined;
   let fmt: Intl.DateTimeFormat;
   try {
     fmt = new Intl.DateTimeFormat('en-CA', { ...opts, timeZone: zone });
